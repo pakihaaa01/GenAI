@@ -9,9 +9,8 @@ data/
 logs/*.csv
 logs/*.json
 logs/*.log
-report/figures/*.png
-!report/figures/.gitkeep
 
+# Gambar hasil (grid sampel, kurva loss) ikut di-commit — dipakai di laporan
 # Python
 __pycache__/
 *.py[cod]

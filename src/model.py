@@ -7,10 +7,18 @@ Resolusi: 28x28 -> 14x14 -> 7x7 (bottleneck + attention) -> 14x14 -> 28x28
 """
 
 import math
+import sys
+from pathlib import Path
 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+
+# Bootstrap: `python src/model.py` menaruh src/ di sys.path[0], bukan root proyek,
+# sehingga `from src.config import ...` gagal tanpa baris ini.
+_ROOT = Path(__file__).resolve().parent.parent
+if str(_ROOT) not in sys.path:
+    sys.path.insert(0, str(_ROOT))
 
 
 class SinusoidalPositionEmbeddings(nn.Module):
@@ -208,12 +216,20 @@ class DDPMUNet(nn.Module):
 
 
 if __name__ == "__main__":
-    model = DDPMUNet(in_channels=1, base_ch=48, time_emb_dim=192)
+    # Pakai Config() supaya angka parameter yang dicetak sama dengan yang dipakai
+    # training (base_ch=32, time_emb_dim=128), bukan nilai demo yang berbeda.
+    from src.config import Config
+    cfg = Config()
+    model = DDPMUNet(
+        in_channels=cfg.channels,
+        base_ch=cfg.unet_base,
+        time_emb_dim=cfg.time_embed_dim,
+    )
     total_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
     print(f"Total Trainable Parameters: {total_params:,}")
 
     dummy_x = torch.randn(4, 1, 28, 28)
-    dummy_t = torch.randint(0, 1000, (4,))
+    dummy_t = torch.randint(0, cfg.timesteps, (4,))
     pred_noise = model(dummy_x, dummy_t)
     print(f"Input shape : {dummy_x.shape}")
     print(f"Output shape: {pred_noise.shape}")

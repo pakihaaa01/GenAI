@@ -52,21 +52,38 @@ Kalau dua-duanya sama dengan punya kamu, commit-nya bakal kebaca satu orang.
 
 ## Langkah 3 — pembagian kerja yang menghasilkan commit nyata
 
-| Sesi / modul | Pemilik | Commit yang dihasilkan |
-|---|---|---|
-| `src/data.py` — `get_dataset()` | kamu | sesi 1 |
-| `src/data.py` — `get_dataloader()` + `check_batch()` | rekanmu | sesi 2 |
-| `src/data.py` — `save_grid()` | kamu | sesi 3 |
-| `LOG-INTERAKSI.md` entri sesi 2 | rekanmu | ikut commit sesi 2 |
-| `src/diffusion.py` | rekanmu | sesi 4 |
-| `src/model.py` | kamu | sesi 5-6 |
-| `src/train.py` | kamu | sesi 7 |
-| `src/sample.py` + grafik | rekanmu | sesi 8 |
-| Laporan akhir | dibagi dua | minimal 2 commit |
+Modul inti (`src/`) sudah selesai dikerjakan lewat 5 sesi Gemini. Yang tersisa harus dikerjakan
+rekanmu supaya kontribusinya nyata, bukan cuma ikut nama:
 
-Yang penting: rekanmu **benar-benar** membuka sesi LLM sendiri untuk bagiannya, dan mencatat
-prompt-nya sendiri. Kalau dia cuma menerima kode jadi dari kamu lalu commit, log-nya kosong
-dan itu langsung kelihatan.
+| Sesi / modul | Pemilik | Status |
+|---|---|---|
+| `src/data.py` — `get_dataset()` | kamu | ✅ selesai (sesi 1) |
+| `src/data.py` — `get_dataloader()` + `check_batch()` | kamu | ✅ selesai (sesi 2) |
+| `src/diffusion.py` — kelas `DDPM` | kamu | ✅ selesai (sesi 3) |
+| `src/model.py` — U-Net | kamu | ✅ selesai (sesi 4) |
+| `src/train.py` + `src/sample.py` | kamu | ✅ selesai (sesi 5) |
+| **`src/evaluate.py` — FID / histogram piksel** | **rekanmu** | ⬜ belum, sesi 6 |
+| **`src/ablation.py` — banding schedule / base_ch** | **rekanmu** | ⬜ belum, sesi 7 |
+| **`report/figures/` — kurva loss + grid progres** | **rekanmu** | ⬜ belum, sesi 8 |
+| **Entri log sesi 6–8 di `LOG-INTERAKSI.md`** | **rekanmu** | ⬜ belum |
+| **`deliverable/LAPORAN-PROYEK1.md` — rakit final** | **kamu** | ⬜ belum, sesi 9 |
+
+Tiga sesi terakhir (6–8) **wajib** dibuka rekanmu sendiri di Gemini dengan akunnya sendiri, lalu
+prompt + jawaban + error-nya dicatat sebagai entri baru di `LOG-INTERAKSI.md`. Kalau dia cuma
+menerima kode jadi dari kamu lalu commit, log-nya kosong dan itu langsung kelihatan saat dinilai.
+
+Ide isi sesi 6–8 (pilih minimal dua):
+
+- **Evaluasi kuantitatif** — hitung histogram intensitas piksel gambar asli vs gambar hasil
+  sampling, atau FID sederhana pakai fitur dari model yang sudah dilatih. Tujuannya supaya ada
+  angka, bukan cuma "kelihatan mirip".
+- **Ablation schedule** — jalankan 3 epoch dengan `beta_schedule="linear"` vs `"cosine"`, bandingkan
+  kurva loss. Cukup 3 epoch, jangan 25.
+- **Ablation kapasitas** — `unet_base=32` vs `unet_base=48`, bandingkan jumlah parameter dan loss.
+- **Grid progres epoch** — ambil checkpoint epoch 1/5/10/25, susun jadi satu gambar dengan noise
+  awal yang sama, jelaskan kenapa noise-nya harus dikunci.
+
+Yang penting: setiap sesi menghasilkan commit nyata dari akun rekanmu.
 
 ## Langkah 4 — aturan commit
 
