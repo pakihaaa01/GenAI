@@ -15,17 +15,15 @@ menggunakan metode **Vibe Coding** (kolaborasi aktif dengan LLM, tanpa copy-past
 | Fase | Isi | Status |
 |---|---|---|
 | 0 | Fondasi: repo, log, pembagian tugas | ✅ selesai |
-| 1 | Data pipeline (loader, normalisasi, visualisasi batch) | 🔨 dibangun ulang via vibe coding |
-| 2 | Arsitektur model (noise schedule, timestep embedding, UNet) | ⬜ belum |
-| 3 | Training loop + custom loss + logging metrik | ⬜ belum |
-| 4 | Hyperparameter tuning & sampling/evaluasi | ⬜ belum |
-| 5 | Kompilasi Log Interaksi + laporan akhir + latihan presentasi | ⬜ belum |
+| 1 | Data pipeline (`data.py`: loader, normalisasi, `check_batch`) | ✅ selesai — 117 batch, `STATUS: LULUS` |
+| 2 | Arsitektur (`diffusion.py` + `model.py`: schedule, UNet) | ✅ selesai — UNet 1.782.289 param |
+| 3 | Training loop + logging metrik (`train.py`) | ✅ selesai — smoke test lulus |
+| 4 | Sampling & grid progres (`sample.py`) | ✅ selesai — grid progres antar-epoch |
+| 5 | Kompilasi Log Interaksi + laporan akhir | 🔨 `LOG-INTERAKSI.md` 5 sesi terisi |
 
-> **Catatan:** `src/data.py` sengaja belum ada. Modul ini dibangun sendiri oleh kelompok
-> lewat sesi vibe coding dengan LLM, dan setiap sesinya dicatat di `LOG-INTERAKSI.md`.
-> Yang tersedia di repo hanya `src/config.py` (wadah hyperparameter, tanpa logika model).
->
-> Rencana kerjanya ada di `RENCANA.md`.
+> **Catatan:** seluruh modul di `src/` dibangun lewat sesi vibe coding dengan Gemini.
+> Kronologi lengkap — prompt, error asli, dan perbaikannya — ada di `LOG-INTERAKSI.md`.
+> Rencana kerja ada di `RENCANA.md`, panduan kolaborasi git di `TEAM-GIT.md`.
 
 ---
 
@@ -34,17 +32,23 @@ menggunakan metode **Vibe Coding** (kolaborasi aktif dengan LLM, tanpa copy-past
 ```
 MiniDDPM-FashionMNIST/
 ├── src/                  # kode sumber (dibangun lewat vibe coding)
+│   ├── __init__.py       # penanda package
 │   ├── config.py         # semua hyperparameter di satu tempat
 │   ├── data.py           # Fase 1 — dataloader + normalisasi
 │   ├── diffusion.py      # Fase 2 — noise schedule, forward/reverse process
 │   ├── model.py          # Fase 2 — UNet + timestep embedding
 │   ├── train.py          # Fase 3 — training loop, custom loss, logging
 │   └── sample.py         # Fase 4 — sampling dari checkpoint
-├── logs/                 # metrik training (CSV/JSON) per eksperimen
+├── colab/
+│   └── jalankan_di_colab.ipynb   # notebook eksekusi di Colab GPU T4
+├── logs/                 # metrik training (JSON) per eksperimen
 ├── report/figures/       # grafik loss, grid gambar hasil sampling
 ├── checkpoints/          # bobot model tersimpan (.pt)  [git-ignored]
+├── data/                 # Fashion-MNIST terunduh            [git-ignored]
 ├── notebooks/            # notebook eksperimen bebas
 ├── LOG-INTERAKSI.md      # ⭐ rekam jejak chat LLM (25% nilai)
+├── TEAM-GIT.md           # aturan kolaborasi & pembagian commit
+├── RENCANA.md            # rencana kerja per sesi
 └── README.md
 ```
 
@@ -117,12 +121,18 @@ python -m pip install -r requirements.txt
 # 2. Fase 1 — cek data pipeline
 python src/data.py
 
-# 3. Fase 3 — training
-python src/train.py --epochs 25 --batch-size 128
+# 3. Fase 2 — cek diffusion & model
+python src/diffusion.py
+python src/model.py
 
-# 4. Fase 4 — sampling dari checkpoint
-python src/sample.py --ckpt checkpoints/ddpm_ep25.pt --n 64
+# 4. Fase 3 — training (semua hyperparameter dari src/config.py)
+python src/train.py
+
+# 5. Fase 4 — sampling + grid progres antar-epoch
+python src/sample.py
 ```
+
+Di Colab (GPU T4): buka `colab/jalankan_di_colab.ipynb`, jalankan sel berurutan.
 
 ---
 

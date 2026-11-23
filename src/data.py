@@ -4,10 +4,17 @@ Kode di file ini dihasilkan lewat sesi vibe coding dengan Gemini,
 lalu disesuaikan seperlunya. Lihat LOG-INTERAKSI.md untuk transkrip prompt.
 """
 
+import sys
+from pathlib import Path
+
 import torch
 from torch.utils.data import Dataset, Subset, DataLoader
 from torchvision import datasets, transforms
-from pathlib import Path
+
+# Pastikan root proyek ada di sys.path agar `python src/data.py` juga jalan
+_ROOT = Path(__file__).resolve().parent.parent
+if str(_ROOT) not in sys.path:
+    sys.path.insert(0, str(_ROOT))
 
 from src.config import Config, PROJECT_ROOT
 
@@ -135,12 +142,6 @@ def check_batch(loader: DataLoader, expected_batches: int = 117,
 
 
 if __name__ == "__main__":
-    import sys
-    from pathlib import Path
-
-    sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-    from src.config import Config
-
     cfg = Config()
     train_loader = get_dataloader(cfg, train=True)
     check_batch(train_loader, expected_batches=117, expected_batch_size=128)
