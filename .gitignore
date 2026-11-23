@@ -1,0 +1,27 @@
+# Data & checkpoint
+checkpoints/*.pt
+checkpoints/*.pth
+data/
+*.pth
+*.pt
+
+# Logs metrik (hasil run) — tetap di-commit yang ringkas saja
+logs/*.csv
+logs/*.json
+logs/*.log
+report/figures/*.png
+!report/figures/.gitkeep
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.ipynb_checkpoints/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
