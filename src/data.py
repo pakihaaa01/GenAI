@@ -9,7 +9,7 @@ from torch.utils.data import Dataset, Subset, DataLoader
 from torchvision import datasets, transforms
 from pathlib import Path
 
-from config import Config, PROJECT_ROOT
+from src.config import Config, PROJECT_ROOT
 
 
 def _resolve_data_root(cfg) -> Path:
@@ -138,8 +138,8 @@ if __name__ == "__main__":
     import sys
     from pathlib import Path
 
-    sys.path.insert(0, str(Path(__file__).resolve().parent))
-    from config import Config
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+    from src.config import Config
 
     cfg = Config()
     train_loader = get_dataloader(cfg, train=True)
