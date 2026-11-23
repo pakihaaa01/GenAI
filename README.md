@@ -24,6 +24,8 @@ menggunakan metode **Vibe Coding** (kolaborasi aktif dengan LLM, tanpa copy-past
 > **Catatan:** `src/data.py` sengaja belum ada. Modul ini dibangun sendiri oleh kelompok
 > lewat sesi vibe coding dengan LLM, dan setiap sesinya dicatat di `LOG-INTERAKSI.md`.
 > Yang tersedia di repo hanya `src/config.py` (wadah hyperparameter, tanpa logika model).
+>
+> Rencana kerjanya ada di `RENCANA.md`.
 
 ---
 
