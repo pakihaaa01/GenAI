@@ -15,32 +15,15 @@ menggunakan metode **Vibe Coding** (kolaborasi aktif dengan LLM, tanpa copy-past
 | Fase | Isi | Status |
 |---|---|---|
 | 0 | Fondasi: repo, log, pembagian tugas | ✅ selesai |
-| 1 | Data pipeline (loader, normalisasi, visualisasi batch) | ✅ selesai — terverifikasi |
+| 1 | Data pipeline (loader, normalisasi, visualisasi batch) | 🔨 dibangun ulang via vibe coding |
 | 2 | Arsitektur model (noise schedule, timestep embedding, UNet) | ⬜ belum |
 | 3 | Training loop + custom loss + logging metrik | ⬜ belum |
 | 4 | Hyperparameter tuning & sampling/evaluasi | ⬜ belum |
 | 5 | Kompilasi Log Interaksi + laporan akhir + latihan presentasi | ⬜ belum |
 
-### Bukti Fase 1 (output nyata, bukan klaim)
-
-```
-=== Verifikasi Data Pipeline ===
-  n_batch          = 117
-  x_shape          = (128, 1, 28, 28)
-  x_dtype          = torch.float32
-  x_min            = -1.0
-  x_max            = 1.0
-  x_mean           = -0.4169
-  x_std            = 0.7074
-  label_unique     = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
-  shape_ok         = True
-  range_ok         = True
-
-STATUS: LULUS
-```
-
-Grid gambar contoh: `report/figures/batch_contoh.png` (4×8 gambar, label kelas di atas tiap gambar).
-Modul diuji dari dua cwd berbeda (`python src/data.py` dan `cd src && python data.py`) — hasil identik.
+> **Catatan:** `src/data.py` sengaja belum ada. Modul ini dibangun sendiri oleh kelompok
+> lewat sesi vibe coding dengan LLM, dan setiap sesinya dicatat di `LOG-INTERAKSI.md`.
+> Yang tersedia di repo hanya `src/config.py` (wadah hyperparameter, tanpa logika model).
 
 ---
 
