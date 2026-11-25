@@ -6,7 +6,7 @@
 
 **Anggota:**
 - Faqih Abdullah — Prompt Engineer & LLM Navigator + Training Loop & Hyperparameter Tuning
-- `[Nama B]` — Data Pipeline & Preprocessing + Lead Documentarian & Error Handler
+- Mia Rosiana Santoso — Data Pipeline & Preprocessing + Lead Documentarian & Error Handler
 
 **Model:** Mini DDPM (Denoising Diffusion Probabilistic Model) — Fashion-MNIST 28×28, dibangun dari nol tanpa library diffusion siap pakai.
 **Akun LLM yang dipakai:** Google Gemini
@@ -20,6 +20,9 @@
 | 3 | 23/11/2026 | `src/diffusion.py` — kelas `DDPM` | Faqih | ✅ LULUS |
 | 4 | 23/11/2026 | `src/model.py` — U-Net DDPM | Faqih | ✅ LULUS |
 | 5 | 23/11/2026 | `src/train.py` + `src/sample.py` | Faqih | ✅ LULUS (4 error) |
+| 6 | 25/11/2026 | `src/evaluate.py` — evaluasi kuantitatif | Mia | ✅ LULUS |
+| 7 | 25/11/2026 | `src/ablation.py` — ablasi noise schedule | Mia | ✅ LULUS (epoch 3→2) |
+| 8 | 26/11/2026 | `src/figures.py` — figur asli vs sampling | Mia | ✅ LULUS (koreksi stratifikasi) |
 
 ---
 
