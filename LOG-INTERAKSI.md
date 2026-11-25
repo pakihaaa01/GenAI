@@ -386,6 +386,167 @@ Bootstrap dipasang di **atas** `data.py`, sebelum import `src.config`. Blok `sys
 
 ---
 
+## Sesi #6 — 25/11/2026
+
+- **Target Modul:** `src/evaluate.py`
+- **Operator:** Mia Rosiana Santoso
+- **Tautan Sesi Chat:** https://gemini.google.com/app/5a904c76650e189f
+- **Model LLM:** Gemini
+
+### 1. TAHAP INISIASI (Meminta Kode Awal)
+
+**Prompt Kelompok:**
+
+> "konteks: aku punya proyek Mini DDPM from scratch untuk Fashion-MNIST 28x28 grayscale, sudah selesai training 25 epoch (loss 0.16831 -> 0.04297, model 793.953 parameter, base_ch=32). sekarang aku mau bikin src/evaluate.py yang ngasih ANGKA, bukan cuma liat gambar. jalan di CPU, Windows, python 3.13, torch 2.14.0+cpu.
+>
+> yang aku bingung:
+>
+> 1. FID katanya standar buat evaluasi diffusion. tapi InceptionV3 maunya input 299x299 RGB, punya aku 28x28 grayscale. kalau aku resize ke 299 terus channel-nya direplikasi 3x, FID-nya masih bermakna atau malah menyesatkan? aku takut angkanya kelihatan ilmiah tapi sebenarnya ngukur hal yang salah.
+>
+> 2. kalau FID nggak cocok, metrik apa yang lebih jujur buat kasus ini? aku kepikiran histogram intensitas piksel antara data asli dan hasil sampling, tapi itu cukup ilmiah nggak sih buat laporan? atau ada metrik lain yang lebih defensible dan masih bisa dihitung di CPU tanpa download model besar?
+>
+> 3. dari angka yang keluar nanti, gimana cara nyimpulin modelnya bagus atau belum? aku butuh ambang atau pembanding, bukan cuma "angkanya kecil".
+>
+> signature yang ada di repo (jangan diubah, ini verbatim):
+>
+> ```
+> # src/diffusion.py
+> class DDPM(nn.Module):
+>     def __init__(self, timesteps: int = 1000, beta_start: float = 1e-4,
+>                  beta_end: float = 0.02, clip_denoised: bool = True) -> None
+>     def q_sample(self, x0: torch.Tensor, t: torch.Tensor,
+>                  noise: torch.Tensor | None = None) -> torch.Tensor
+>     def p_losses(self, model: nn.Module, x0: torch.Tensor, t: torch.Tensor,
+>                  noise: torch.Tensor | None = None) -> torch.Tensor
+>     def p_sample_loop(self, model: nn.Module, shape: tuple[int, int, int, int],
+>                       device: torch.device | str = "cpu") -> torch.Tensor
+>
+> # src/model.py
+> class DDPMUNet(nn.Module):
+>     def __init__(self, in_channels: int = 1, base_ch: int = 48,
+>                  time_emb_dim: int = 192)
+>
+> # src/sample.py
+> def generate_with_fixed_noise(model: DDPMUNet, diffusion: DDPM, num_samples: int,
+>                               img_size: int, channels: int, device: torch.device,
+>                               fixed_seed: int = 1234) -> torch.Tensor
+>     # return sudah didenormalisasi ke [0, 1]
+>
+> # src/data.py
+> def get_dataset(cfg, train: bool = True) -> Dataset
+> def get_dataloader(cfg, train: bool = True)
+>
+> # isi checkpoint (src/train.py): {"epoch", "model_state_dict",
+> #   "optimizer_state_dict", "loss", "config"}  -> checkpoints/ddpm_best.pt
+>
+> # field Config yang ada: data_root, subset_size, image_size=28, channels=1,
+> # num_workers=0, unet_base=32, time_embed_dim=128, num_groups=8, timesteps=1000,
+> # beta_start=1e-4, beta_end=0.02, beta_schedule="linear", batch_size=128,
+> # epochs=25, lr=2e-4, seed=42, sample_every=5, num_sample_images=64,
+> # ckpt_dir, log_dir, fig_dir="report/figures"
+> ```
+>
+> batasan:
+>
+> - cuma bikin src/evaluate.py, jangan ubah file lain (config.py, data.py, diffusion.py, model.py, train.py, sample.py, plot_loss.py sudah diverifikasi)
+> - jangan pakai library diffusion siap pakai (diffusers dll)
+> - import absolut from src.x import y, dan bootstrap sys.path di level modul (bukan di dalam `__main__`), karena skrip dijalankan `python src/evaluate.py`
+> - num_workers=0 (Windows)
+> - keluaran: cetak minimal satu angka metrik ke konsol, simpan minimal satu gambar ke report/figures/"
+
+**Alasan Khusus:**
+FID secara teknis bisa dihitung (resize 28→299, replikasi channel), tapi yang diukur jadi artefak interpolasi bikubik dan korelasi antar-channel buatan, bukan kualitas sampel — angka ilmiah yang salah sasaran. Karena itu prompt tidak meminta "implementasikan FID", tapi meminta penilaian apakah FID layak, lalu alternatif yang bisa dipertanggungjawabkan di CPU tanpa bobot besar.
+
+Histogram intensitas piksel saja ditolak sebagai satu-satunya metrik karena hanya membaca distribusi marginal — gambar acak bisa punya histogram mirip tapi struktur spasialnya rusak. Tambahan yang diminta: metrik yang menangkap struktur (MMD pada ruang piksel, Wasserstein-1 pada magnitudo gradien Sobel).
+
+Agar angkanya bisa disimpulkan tanpa ambang universal, prompt meminta pembanding internal: jarak **Real vs Generated** dilaporkan bersama jarak **Real vs Real** (dua paruhan test set) sebagai lantai (floor) praktis. Tanpa floor itu, angka 0,03 atau 0,10 tidak bisa ditafsirkan.
+
+**Output Model:**
+`src/evaluate.py` — 252 baris, import absolut `from src...` dengan bootstrap `sys.path` di level modul. Isi: `_extract_real_images` (test set, dinormalkan ke [0,1]), `compute_rbf_mmd` (RBF multi-sigma 0,5/1/2/5/10 pada piksel ter-flatten), `_hist_wasserstein_1d` (jarak CDF 32 bin), `_sobel_gradient_magnitude` (kernel 3×3, `conv2d` groups=channel), `load_checkpoint_and_models`, `save_evaluation_figure`, `evaluate`.
+
+Default `num_eval_samples=256` → 256 gambar test dibelah dua (128 Real-A vs 128 Real-B sebagai referensi) dan 128 gambar generated dengan `fixed_seed=1234`. Keluaran: 6 angka di konsol + `report/figures/evaluation_metrics.png` (grid 4×4 sampel, histogram intensitas, histogram gradien Sobel).
+
+**Verifikasi checkpoint (dijalankan sebelum evaluasi):**
+
+```
+file            : C:\Users\rosiana\Documents\GenAI\checkpoints\ddpm_best.pt
+size            : 9637216 bytes
+tipe objek      : dict
+kunci top-level : ['config', 'epoch', 'loss', 'model_state_dict', 'optimizer_state_dict']
+epoch           : 24
+loss            : 0.04297231029496234
+jumlah tensor   : 130
+load_state_dict : strict=True LOLOS
+parameter model : 793,953
+semua bobot finite (tidak NaN/Inf): True
+forward dummy   : input (1, 1, 28, 28) -> output (1, 1, 28, 28)
+STATUS: CHECKPOINT VALID
+```
+
+Cocok dengan catatan Sesi #1–#5: epoch terbaik 24, loss 0,04297, 793.953 parameter.
+
+**Hasil Uji:**
+
+```
+=== Mini DDPM Evaluation Summary (CPU) ===
+Checkpoint      : C:\Users\rosiana\Documents\GenAI\checkpoints\ddpm_best.pt (epoch=24, loss=0.04297231029496234)
+Eval Samples    : 256 per set (image_size=28, channels=1)
+RBF-MMD (Real vs Gen)   : 0.038898  [Real Split Ref: 0.007159]
+Pixel W1 (Real vs Gen)  : 0.101793  [Real Split Ref: 0.008048]
+Sobel Grad W1 (R vs G)  : 0.042321  [Real Split Ref: 0.004876]
+Saved figure    : C:\Users\rosiana\Documents\GenAI\report\figures\evaluation_metrics.png
+```
+
+Exit code 0. Waktu jalan ±53 menit di CPU (1.000 timestep × batch 128, ±2,7–3,0 detik per forward pass). Gambar tersimpan 93.849 byte.
+
+### 2. TAHAP PENANGANAN EROR / DEBUGGING
+
+#### Kegagalan #1 — `FileNotFoundError: checkpoints/ddpm_best.pt`
+
+```
+Traceback (most recent call last):
+  File "C:\Users\rosiana\Documents\GenAI\src\evaluate.py", line 252, in <module>
+    evaluate()
+  File "C:\Users\rosiana\Documents\GenAI\src\evaluate.py", line 198, in evaluate
+    cfg, model, diffusion, ckpt = load_checkpoint_and_models(ckpt_path, device)
+  File "C:\Users\rosiana\Documents\GenAI\src\evaluate.py", line 104, in load_checkpoint_and_models
+    ckpt = torch.load(ckpt_path, map_location=device)
+  File "C:\Users\rosiana\AppData\Local\Programs\Python\Python313\Lib\site-packages\torch\serialization.py", line 1565, in load
+    with _open_file_like(f, "rb") as opened_file:
+  File "C:\Users\rosiana\AppData\Local\Programs\Python\Python313\Lib\site-packages\torch\serialization.py", line 795, in _open_file_like
+    return _open_file(name_or_buffer, mode)
+  File "C:\Users\rosiana\AppData\Local\Programs\Python\Python313\Lib\site-packages\torch\serialization.py", line 776, in __init__
+    super().__init__(open(name, mode))  # noqa: SIM115
+FileNotFoundError: [Errno 2] No such file or directory: 'C:\\Users\rosiana\\Documents\\GenAI\\checkpoints\\ddpm_best.pt'
+```
+
+**Analisis & Solusi Kelompok:**
+Ini bukan error kode dan **tidak dikirim ke Gemini** — `checkpoints/` memang hanya berisi `.gitkeep` saat itu, jadi prasyarat belum terpenuhi. Kode yang sama, tanpa satu baris pun diubah, langsung jalan begitu file checkpoint dari Faqih dipasang. Mencatatnya sebagai "error Gemini" akan menyesatkan; mencetak angka evaluasi tanpa checkpoint akan mengarang.
+
+Satu detail teknis saat memulihkan file: checkpoint yang diterima berbentuk zip berisi direktori `ddpm_best/` (format `_use_new_zipfile_serialization`), sehingga harus disusun ulang menjadi satu file `ddpm_best.pt` sebelum bisa dibaca `torch.load`.
+
+**Hasil Uji:** error di atas hilang setelah checkpoint tersedia; run berikutnya exit 0 dengan angka di bagian Hasil Uji.
+
+#### Error kode pada sesi ini: tidak ada
+
+Kode dari Gemini jalan apa adanya pada percobaan pertama setelah prasyarat lengkap — `load_state_dict(strict=True)` lolos, seluruh bobot finite, dan `evaluate()` selesai tanpa traceback.
+
+### 3. INTERPRETASI ANGKA
+
+| Metrik | Real vs Generated | Real vs Real (floor) | Rasio terhadap floor |
+|---|---|---|---|
+| RBF-MMD² | 0,038898 | 0,007159 | 5,4× |
+| Wasserstein-1 intensitas piksel | 0,101793 | 0,008048 | 12,6× |
+| Wasserstein-1 magnitudo gradien Sobel | 0,042321 | 0,004876 | 8,7× |
+
+Pembacaan: dua paruhan data asli hampir tidak bisa dibedakan metrik ini (MMD 0,007; W1 piksel 0,008), jadi floor-nya rendah dan bisa dipakai sebagai pembanding. Distribusi sampel model masih jauh di atas floor — 5–13× tergantung metrik — dengan jarak terbesar pada intensitas piksel.
+
+Panel histogram menjelaskan sumbernya: sampel generated menumpuk di intensitas mendekati 0 (latar hitam) jauh lebih tajam daripada data asli, artinya model cenderung menghasilkan gambar berkontras rendah dengan area gelap berlebih. Gradien Sobel relatif lebih dekat (8,7×) karena kedua distribusi sama-sama didominasi tepi lemah. Ini konsisten dengan tampilan visual grid 4×4: siluet pakaian terbaca, tapi blur dan tepi bergerigi.
+
+Kesimpulan yang bisa ditulis di laporan: model **belum** mencapai kualitas distribusi data asli, dan angka ini jadi baseline kuantitatif — bukan penilaian "sudah bagus" hanya karena loss training 0,043.
+
+---
+
 ## Hasil Akhir Training (Bukti Fungsionalitas)
 
 Training penuh dijalankan setelah kelima sesi selesai, memakai kode apa adanya dari log di atas — tanpa perubahan logika, hanya perbaikan import dan penyeragaman angka parameter.
@@ -429,5 +590,6 @@ Loss turun **74,4%** dari epoch 1 ke 25, lalu mendatar di ~0,043 — pola konver
 | 3 | 1 | 0 | — |
 | 4 | 1 | 0 | — |
 | 5 | 1 + 4 lanjutan | 4 (`UNet`, `checkpoint_dir`, import path, `src` not found) | Gemini |
+| 6 | 1 | 0 error kode (`FileNotFoundError` murni prasyarat: checkpoint belum ada) | — |
 
 **Pelajaran utama:** LLM tidak bisa menebak isi file yang tidak diberikan. Dua dari empat error di proyek ini berakar pada satu hal yang sama — konteks kode tidak lengkap di prompt. Setelah signature verbatim ditempel, kode langsung nyambung. Kesimpulan operasional: **tempel signature, bukan ringkasan.**
