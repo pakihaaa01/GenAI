@@ -200,6 +200,13 @@ python src/evaluate.py
 Kalau error: salin traceback **utuh** dari konsol. Jangan diringkas, jangan diperbaiki
 manual dulu. Error itu yang dilaporkan ke Gemini.
 
+Bedakan dua jenis kegagalan, jangan dicampur:
+
+| Jenis | Contoh | Penanganan |
+|---|---|---|
+| Error kode | `AttributeError: 'Config' object has no attribute 'fig_dir'`, `RuntimeError: size mismatch` | Konsultasikan ke Gemini dengan traceback utuh, catat di log |
+| Error environment | `ModuleNotFoundError: torch`, `checkpoints/ddpm_best.pt` tidak ada, RAM habis | Perbaiki sendiri tanpa LLM, catat di log sebagai catatan environment — **jangan** mengarang konsultasi Gemini yang tidak terjadi |
+
 **Langkah 7 — Kirim error ke Gemini, minta perbaikan.**
 Sertakan traceback utuh, isi file yang error, dan signature modul lain yang dipanggil.
 Kalau Gemini meminta signature file lain, kirim apa adanya. Ambil share link baru untuk
