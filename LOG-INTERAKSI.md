@@ -739,6 +739,188 @@ Yang bisa diklaim sebagai temuan teknis justru bagian non-angka: `CosineDDPM` be
 
 ---
 
+## Sesi #8 — 26/11/2026
+
+- **Target Modul:** `src/figures.py`
+- **Operator:** Mia Rosiana Santoso
+- **Tautan Sesi Chat:** https://share.gemini.google/NhHSVgoMabeC
+- **Model LLM:** Gemini
+
+### 1. TAHAP INISIASI (Meminta Kode Awal)
+
+**Prompt Kelompok:**
+
+> konteks: aku punya proyek Mini DDPM from scratch untuk Fashion-MNIST 28x28 grayscale, training 25 epoch sudah selesai (loss 0.16831 -> 0.04297, 793.953 parameter, base_ch=32, time_emb_dim=128, T=1000 linear beta 1e-4 sampai 0.02). jalan di CPU, Windows, python 3.13, torch 2.14.0+cpu.
+>
+> sekarang sesi 8, sesi terakhir: aku butuh SATU figur buat laporan yang membandingkan gambar asli dataset dengan hasil sampling model, berdampingan, biar pembaca bisa menilai sendiri tanpa harus percaya angka loss. file baru src/figures.py, keluarannya report/figures/real_vs_generated.png.
+>
+> yang sudah ada di report/figures/ (jangan bikin ulang): loss_curve.png, progression_epochs_1_to_25.png, samples_epoch_001..025.png, evaluation_metrics.png (isinya grid 4x4 sampel + histogram intensitas + histogram gradien Sobel), ablation_noise_schedule.png.
+>
+> yang aku bingung:
+>
+> 1. sampling 1000 langkah itu mahal di CPU: sesi 6 butuh sekitar 53 menit untuk 128 gambar, dan tensor hasilnya tidak kusimpan. kalau grid cuma butuh 6-12 gambar, apakah sampling ulang dengan N kecil masih jujur sebagai wakil model, atau harus tetap N=128? gimana nulis caption biar nggak overclaim?
+>
+> 2. kalau grid 2 baris x 6 kolom, kolom ke-i berisi gambar asli di atas dan generated di bawah, pembaca wajar menyimpulkan "gambar bawah dihasilkan dari gambar atas". padahal generated tidak punya label dan tidak berpasangan. susunan mana yang paling tidak menyesatkan: label kelas cuma di baris asli, baris generated tanpa label, atau dua panel terpisah dengan judul sendiri?
+>
+> 3. urutan gambar asli: kalau kuambil 6 gambar pertama dari test set, bisa jadi isinya 4 ankle boot semua. perlu stratifikasi per kelas (1 gambar per kelas) atau cukup seed tetap lalu tulis di caption bahwa itu sampel acak?
+>
+> 4. src/evaluate.py sudah punya load_checkpoint_and_models() dan _extract_real_images() (private, pakai underscore). lebih bersih kalau src/figures.py mengimpor yang private itu, atau menduplikasi 10 baris logika denormalisasi? aku nggak mau bikin file baru yang isinya salinan, tapi juga nggak mau impor fungsi private lalu rusak kalau rekan tim refactor.
+>
+> yang aku minta ada di src/figures.py, spesifik per fungsi:
+>
+> 1. build_comparison_grid(real, fake, real_labels, class_names, save_path, n_cols=6)
+>    satu PNG dua baris: baris atas gambar asli beserta label kelasnya, baris bawah hasil sampling tanpa label; tiap panel tanpa tick/axis; ada judul baris "Data asli (test set)" dan "Hasil sampling (T=1000, seed 1234)".
+>
+> 2. main()
+>    memuat checkpoint, mengambil gambar asli dan hasil sampling, memanggil build_comparison_grid, lalu mencetak path PNG yang disimpan, shape kedua tensor, dan waktu eksekusi.
+>
+> signature yang ada di repo (jangan diubah, ini verbatim):
+>
+> ```python
+> # src/config.py
+> @dataclass
+> class Config:
+>     dataset: str = "FashionMNIST"
+>     data_root: str = "data"
+>     subset_size: int = 15_000
+>     image_size: int = 28
+>     channels: int = 1
+>     num_workers: int = 0
+>     unet_base: int = 32
+>     time_embed_dim: int = 128
+>     num_groups: int = 8
+>     timesteps: int = 1000
+>     beta_start: float = 1e-4
+>     beta_end: float = 0.02
+>     beta_schedule: str = "linear"
+>     batch_size: int = 128
+>     epochs: int = 25
+>     lr: float = 2e-4
+>     seed: int = 42
+>     sample_every: int = 5
+>     num_sample_images: int = 64
+>     ckpt_dir: str = "checkpoints"
+>     log_dir: str = "logs"
+>     fig_dir: str = "report/figures"
+>
+> # src/diffusion.py
+> class DDPM(nn.Module):
+>     def __init__(self, timesteps: int = 1000, beta_start: float = 1e-4,
+>                  beta_end: float = 0.02, clip_denoised: bool = True) -> None
+>     def p_sample_loop(self, model, shape, device="cpu") -> torch.Tensor   # output [-1, 1]
+>
+> # src/model.py
+> class DDPMUNet(nn.Module):
+>     def __init__(self, in_channels: int = 1, base_ch: int = 48,
+>                  time_emb_dim: int = 192)
+>
+> # src/sample.py
+> def generate_with_fixed_noise(model: DDPMUNet, diffusion: DDPM, num_samples: int,
+>                               img_size: int, channels: int, device: torch.device,
+>                               fixed_seed: int = 1234) -> torch.Tensor
+>     # torch.manual_seed(fixed_seed) di dalam, output sudah didenormalisasi ke [0, 1]
+>
+> # src/evaluate.py
+> def load_checkpoint_and_models(ckpt_path: Path, device: torch.device
+>                                ) -> tuple[Config, DDPMUNet, DDPM, dict]
+> def _extract_real_images(cfg: Config, max_samples: int) -> torch.Tensor
+>     # ambil dari test set, output [0, 1], shape (N, 1, 28, 28)
+>
+> # src/data.py
+> def get_dataset(cfg, train: bool = True) -> Dataset   # transform: ToTensor + Normalize(0.5, 0.5)
+> def get_dataloader(cfg, train: bool = True) -> DataLoader   # batch -> (x, y), x di [-1, 1]
+>
+> # isi checkpoint (src/train.py): {"epoch", "model_state_dict",
+> #   "optimizer_state_dict", "loss", "config"}  -> checkpoints/ddpm_best.pt (epoch 24, loss 0.04297)
+>
+> # urutan kelas FashionMNIST: 0 T-shirt/top, 1 Trouser, 2 Pullover, 3 Dress,
+> # 4 Coat, 5 Sandal, 6 Shirt, 7 Sneaker, 8 Bag, 9 Ankle boot
+> ```
+>
+> batasan:
+>
+> - cuma bikin src/figures.py, jangan ubah file lain di src/ (config.py, data.py, diffusion.py, model.py, train.py, sample.py, plot_loss.py, evaluate.py, ablation.py sudah diverifikasi)
+> - jangan pakai library diffusion siap pakai (diffusers dll)
+> - import absolut from src.x import y, dan bootstrap sys.path di level modul (bukan di dalam __main__), karena skrip dijalankan `python src/figures.py`
+> - num_workers=0 (Windows)
+> - jumlah gambar generated maksimal 12 (biaya sampling CPU), seed sampling tetap 1234 supaya bisa diulang
+> - jangan menimpa PNG yang sudah ada di report/figures/; satu file baru: real_vs_generated.png
+> - keluaran: minimal satu PNG di report/figures/
+
+**Alasan Khusus:**
+
+Tiga item brief Sesi 8 adalah grid perbandingan, histogram overlay, dan grid ablasi. Dua yang terakhir sudah tertutup sesi sebelumnya — `evaluation_metrics.png` (sesi 6) sudah memuat histogram intensitas dan gradien Sobel, `ablation_noise_schedule.png` (sesi 7) sudah memuat dua kurva loss dalam satu plot. Jadi sesi 8 difokuskan ke satu figur yang belum ada: grid asli vs sampling.
+
+Pemeriksaan repo sebelum menulis prompt: (1) isi `report/figures/` didaftar verbatim di prompt supaya Gemini tidak membuat ulang file yang sudah ada; (2) `_extract_real_images()` di `src/evaluate.py` hanya mengembalikan tensor gambar tanpa label `y` — kalau diimpor, label kelas untuk baris atas tidak akan pernah didapat, sehingga pertanyaan 4 diajukan eksplisit; (3) biaya sampling diambil dari angka nyata sesi 6 (128 gambar ±53 menit) untuk mempertanggungjawabkan batas maksimal 12 gambar.
+
+Dua keputusan diambil sebelum prompt dikirim: batas maksimal 12 gambar (grid 2×6, 6 asli + 6 generated) supaya waktu CPU aman, dan pertanyaan 2 (risiko pembaca menyimpulkan pasangan palsu) dipertahankan karena menentukan judul/caption.
+
+**Output Model:**
+`src/figures.py` — 190 baris. Isi: bootstrap `PROJECT_ROOT` di level modul, `FASHION_MNIST_CLASSES` (10 kelas), `_select_stratified_real_samples(cfg, n_samples=6, seed=42)`, `build_comparison_grid(...)` (2×n_cols, `hspace=0.48`, label kelas sebagai `xlabel` hanya di baris atas, judul baris lewat `fig.text` pada posisi axes hasil `get_position()`, simpan `dpi=200`), dan `main()` (muat checkpoint → ambil 6 gambar asli → `generate_with_fixed_noise(..., fixed_seed=1234)` → cetak path/shape/waktu).
+
+Jawaban Gemini atas 4 kebingungan (ringkas):
+1. Sampling N kecil tetap sah: `DDPMUNet` memakai `GroupNorm(num_groups=8)`, bukan BatchNorm, jadi tiap sampel independen; 6 sampel pertama dengan `fixed_seed=1234` identik pixel-for-pixel dengan 6 pertama batch N=128.
+2. Judul baris terpisah + label hanya di baris asli + `hspace` lebar; caption menegaskan baris bawah unconditional.
+3. Sampling acak terstratifikasi dengan seed tetap, satu gambar per kelas.
+4. Jangan impor `_extract_real_images()`: private dan tidak mengembalikan label; cukup `load_checkpoint_and_models` + `get_dataset(cfg, train=False)`, denormalisasi satu baris.
+
+**Hasil Uji (run pertama, kode Gemini apa adanya):**
+
+```
+Figur disimpan   : report/figures/real_vs_generated.png
+Shape tensor real: (6, 1, 28, 28)
+Shape tensor fake: (6, 1, 28, 28)
+Waktu eksekusi   : 72.32 detik (1.21 menit)
+```
+
+Exit code 0, tanpa traceback. Tapi pemeriksaan figur menunjukkan hanya **4 kelas unik** (Trouser, Sandal, Bag, Ankle boot) karena Sandal dan Ankle boot masing-masing muncul dua kali — cabang `overflow_items` mengisi slot sebelum semua kelas ditemukan. Caption yang disarankan Gemini menyebut "satu sampel per kelas", jadi caption itu belum benar untuk output run pertama.
+
+**Perbaikan operator (setelah run pertama):** cabang `overflow_items` dihapus; kelas yang sudah terpilih di-`continue`; loop berhenti setelah 6 kelas unik terkumpul. Perubahan hanya di `_select_stratified_real_samples`, tidak menyentuh `build_comparison_grid` maupun bagian sampling.
+
+**Hasil Uji (run kedua, setelah perbaikan):**
+
+```
+Figur disimpan   : report/figures/real_vs_generated.png
+Shape tensor real: (6, 1, 28, 28)
+Shape tensor fake: (6, 1, 28, 28)
+Waktu eksekusi   : 69.03 detik (1.15 menit)
+```
+
+Label baris atas run kedua: T-shirt/top, Trouser, Coat, Sandal, Bag, Ankle boot — 6 kelas unik, tanpa duplikat. `real_vs_generated.png` 62.189 byte, mtime `2026-11-26 00:21:06`. PNG lain di `report/figures/` tidak tersentuh (mtime tetap 25/11). Seed sampling tetap 1234 pada kedua run; kesamaan pixel-level baris bawah antar-run tidak diverifikasi ulang.
+
+### 2. TAHAP PENANGANAN EROR / DEBUGGING
+
+#### Error kode pada sesi ini: tidak ada
+
+Kode dari Gemini jalan apa adanya pada percobaan pertama: `load_checkpoint_and_models`, `get_dataset(cfg, train=False)`, `generate_with_fixed_noise(fixed_seed=1234)`, dan `build_comparison_grid` semuanya cocok dengan signature repo. Tidak ada traceback, tidak ada perbaikan import/argumen yang dikirim balik ke Gemini.
+
+#### Kendala render Gemini (bukan error kode)
+
+Jawaban Gemini macet dua kali di tengah streaming; setelah `ctrl+r` tab sempat render kosong. RAM saat kejadian 761 MB sisa dari 6.024 MB dengan chrome ±1,29 GB, jadi tab YouTube ditutup untuk membebaskan memori lalu tab Gemini di-reload. Setelah reload jawaban muncul utuh. Teks jawaban diambil dengan `ctrl+a` → `ctrl+c` (16.997 byte) lalu disimpan sebagai berkas teks; kode `src/figures.py` di repo disusun dari teks itu, bukan diketik ulang dari ingatan.
+
+#### Koreksi stratifikasi kelas
+
+Dijelaskan di bagian 1: run pertama menghasilkan label duplikat, caption Gemini jadi tidak akurat, dan pemilihan sampel diperbaiki sebelum run kedua. Ini kesalahan logika pemilihan sampel, bukan crash — exit code kedua run sama-sama 0.
+
+### 3. INTERPRETASI ANGKA
+
+| Run | Waktu eksekusi | Kelas unik di baris atas | Ukuran PNG |
+|---|---|---|---|
+| 1 (kode Gemini apa adanya) | 72,32 dtk | 4 dari 6 | 59.301 B |
+| 2 (setelah perbaikan stratifikasi) | 69,03 dtk | 6 dari 6 | 62.189 B |
+
+Waktu nyata jauh di bawah perkiraan Gemini (2,5–3 menit) dan konsisten dengan biaya sesi 6: 128 gambar ±53 menit ≈ 25 detik/gambar, sehingga 6 gambar ≈ 2,5 menit sudah termasuk muat checkpoint dan render. Selisih 3 detik antar-run adalah variasi beban CPU, bukan efek perbaikan.
+
+Klaim Gemini bahwa 6 sampel pertama identik pixel-for-pixel dengan batch N=128 **belum diverifikasi di sesi ini** — membuktikannya butuh sampling N=128 (±53 menit) dan tensor hasil sesi 6 tidak disimpan. Yang bisa ditulis di laporan: jumlah gambar kecil dipakai karena alasan biaya CPU, sampling memakai seed tetap 1234 tanpa seleksi pasca-sampling, dan evaluasi distribusi skala penuh tetap merujuk ke `evaluation_metrics.png` (N=128).
+
+Caption yang disarankan Gemini (dikutip apa adanya, sudah sesuai setelah perbaikan stratifikasi):
+
+> Gambar X. Perbandingan kualitatif antara sampel data asli test set Fashion-MNIST (baris atas, dipilih terstratifikasi satu sampel per kelas menggunakan seed 42) dan enam sampel pertama yang dihasilkan model Mini DDPM pada epoch 24 (T=1000, fixed seed 1234, tanpa seleksi pasca-sampling) pada baris bawah. Karena model dilatih secara unconditional, gambar pada baris bawah tidak memiliki label kelas dan tidak berpasangan secara kolom dengan gambar asli di atasnya.
+
+Satu hal yang tidak bisa diklaim dari figur ini: kualitas baris bawah. Sampel tampak lebih blur dan kontrasnya lebih rendah dibanding data asli — itu konsisten dengan loss 0,04297 dan tidak boleh ditulis sebagai bukti model "berhasil" tanpa metrik sesi 6 (RBF-MMD 0,038898; Pixel W1 0,101793; Sobel Grad W1 0,042321).
+
+---
+
 ## Hasil Akhir Training (Bukti Fungsionalitas)
 
 Training penuh dijalankan setelah kelima sesi selesai, memakai kode apa adanya dari log di atas — tanpa perubahan logika, hanya perbaikan import dan penyeragaman angka parameter.
@@ -784,5 +966,6 @@ Loss turun **74,4%** dari epoch 1 ke 25, lalu mendatar di ~0,043 — pola konver
 | 5 | 1 + 4 lanjutan | 4 (`UNet`, `checkpoint_dir`, import path, `src` not found) | Gemini |
 | 6 | 1 | 0 error kode (`FileNotFoundError` murni prasyarat: checkpoint belum ada) | — |
 | 7 | 1 | 0 error kode (run pertama dihentikan manual: proyeksi 92 menit > batas 1 jam) | operator (epoch 3→2, header dinamis) |
+| 8 | 1 | 0 error kode (label kelas duplikat: 4 dari 6 kelas unik) | operator (hapus cabang `overflow_items`, wajib 1 gambar/kelas) |
 
 **Pelajaran utama:** LLM tidak bisa menebak isi file yang tidak diberikan. Dua dari empat error di proyek ini berakar pada satu hal yang sama — konteks kode tidak lengkap di prompt. Setelah signature verbatim ditempel, kode langsung nyambung. Kesimpulan operasional: **tempel signature, bukan ringkasan.**
