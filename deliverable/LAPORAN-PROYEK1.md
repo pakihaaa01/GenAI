@@ -5,7 +5,7 @@
 **Kelompok:** 2 orang
 **Anggota:**
 1. Faqih Abdullah — *Prompt Engineer & LLM Navigator* + *Training Loop & Hyperparameter Tuning*
-2. `[Nama Anggota B]` — *Data Pipeline & Preprocessing* + *Lead Documentarian & Error Handler*
+2. **Mia Rosiana Santoso** — *Data Pipeline & Preprocessing* + *Lead Documentarian & Error Handler*
 
 **LLM yang dipakai:** Google Gemini
 **Repo:** `https://github.com/pakihaaa01/GenAI`
@@ -64,7 +64,7 @@ Panduan asli mengasumsikan 4 anggota; kelompok ini 2 orang, jadi job desk digabu
 | Anggota | Job desk gabungan | Tanggung jawab konkret |
 |---|---|---|
 | **A** (Faqih) | Prompt Engineer & LLM Navigator + Training Loop & Tuning | Menyusun prompt bertahap, memandu LLM untuk `data.py`, `diffusion.py`, `model.py`, `train.py`, `sample.py`; menjalankan eksperimen dan mencatat metrik |
-| **B** (`[Nama]`) | Data Pipeline & Preprocessing + Documentarian & Error Handler | Menyiapkan dataset dan normalisasi, memverifikasi batch, mengompilasi log, mengevaluasi hasil, menyusun figur dan laporan |
+| **B** (Mia) | Data Pipeline & Preprocessing + Documentarian & Error Handler | Menyiapkan dataset dan normalisasi, memverifikasi batch; menulis `evaluate.py` (metrik kuantitatif), `ablation.py` (ablasi noise schedule), `figures.py` (figur asli vs sampling); mengompilasi log sesi #6–#8, menyusun figur dan laporan |
 
 **Justifikasi penggabungan:** pemandu prompt arsitektur butuh umpan balik cepat dari hasil training, sehingga wajar digabung dengan pemilik training loop. Data pipeline dan dokumentasi error bermuara pada log yang sama — setiap error bentuk tensor/data langsung jadi entri log.
 
@@ -80,7 +80,7 @@ Panduan asli mengasumsikan 4 anggota; kelompok ini 2 orang, jadi job desk digabu
 
 **Anggota:**
 - Faqih Abdullah — Prompt Engineer & LLM Navigator + Training Loop & Hyperparameter Tuning
-- `[Nama B]` — Data Pipeline & Preprocessing + Lead Documentarian & Error Handler
+- **Mia Rosiana Santoso** — Data Pipeline & Preprocessing + Lead Documentarian & Error Handler
 
 **Model:** Mini DDPM (Denoising Diffusion Probabilistic Model) — Fashion-MNIST 28×28, dibangun dari nol tanpa library diffusion siap pakai.
 **Akun LLM yang dipakai:** Google Gemini
@@ -460,6 +460,537 @@ Bootstrap dipasang di **atas** `data.py`, sebelum import `src.config`. Blok `sys
 
 ---
 
+### Sesi #6 — 25/11/2026
+
+- **Target Modul:** `src/evaluate.py`
+- **Operator:** Mia Rosiana Santoso
+- **Tautan Sesi Chat:** https://share.gemini.google/QMM0U3W3ZDe0
+- **Model LLM:** Gemini
+
+#### 1. TAHAP INISIASI (Meminta Kode Awal)
+
+**Prompt Kelompok:**
+
+> "konteks: aku punya proyek Mini DDPM from scratch untuk Fashion-MNIST 28x28 grayscale, sudah selesai training 25 epoch (loss 0.16831 -> 0.04297, model 793.953 parameter, base_ch=32). sekarang aku mau bikin src/evaluate.py yang ngasih ANGKA, bukan cuma liat gambar. jalan di CPU, Windows, python 3.13, torch 2.14.0+cpu.
+>
+> yang aku bingung:
+>
+> 1. FID katanya standar buat evaluasi diffusion. tapi InceptionV3 maunya input 299x299 RGB, punya aku 28x28 grayscale. kalau aku resize ke 299 terus channel-nya direplikasi 3x, FID-nya masih bermakna atau malah menyesatkan? aku takut angkanya kelihatan ilmiah tapi sebenarnya ngukur hal yang salah.
+>
+> 2. kalau FID nggak cocok, metrik apa yang lebih jujur buat kasus ini? aku kepikiran histogram intensitas piksel antara data asli dan hasil sampling, tapi itu cukup ilmiah nggak sih buat laporan? atau ada metrik lain yang lebih defensible dan masih bisa dihitung di CPU tanpa download model besar?
+>
+> 3. dari angka yang keluar nanti, gimana cara nyimpulin modelnya bagus atau belum? aku butuh ambang atau pembanding, bukan cuma "angkanya kecil".
+>
+> signature yang ada di repo (jangan diubah, ini verbatim):
+>
+> ```
+> # src/diffusion.py
+> class DDPM(nn.Module):
+>     def __init__(self, timesteps: int = 1000, beta_start: float = 1e-4,
+>                  beta_end: float = 0.02, clip_denoised: bool = True) -> None
+>     def q_sample(self, x0: torch.Tensor, t: torch.Tensor,
+>                  noise: torch.Tensor | None = None) -> torch.Tensor
+>     def p_losses(self, model: nn.Module, x0: torch.Tensor, t: torch.Tensor,
+>                  noise: torch.Tensor | None = None) -> torch.Tensor
+>     def p_sample_loop(self, model: nn.Module, shape: tuple[int, int, int, int],
+>                       device: torch.device | str = "cpu") -> torch.Tensor
+>
+> # src/model.py
+> class DDPMUNet(nn.Module):
+>     def __init__(self, in_channels: int = 1, base_ch: int = 48,
+>                  time_emb_dim: int = 192)
+>
+> # src/sample.py
+> def generate_with_fixed_noise(model: DDPMUNet, diffusion: DDPM, num_samples: int,
+>                               img_size: int, channels: int, device: torch.device,
+>                               fixed_seed: int = 1234) -> torch.Tensor
+>     # return sudah didenormalisasi ke [0, 1]
+>
+> # src/data.py
+> def get_dataset(cfg, train: bool = True) -> Dataset
+> def get_dataloader(cfg, train: bool = True)
+>
+> # isi checkpoint (src/train.py): {"epoch", "model_state_dict",
+> #   "optimizer_state_dict", "loss", "config"}  -> checkpoints/ddpm_best.pt
+>
+> # field Config yang ada: data_root, subset_size, image_size=28, channels=1,
+> # num_workers=0, unet_base=32, time_embed_dim=128, num_groups=8, timesteps=1000,
+> # beta_start=1e-4, beta_end=0.02, beta_schedule="linear", batch_size=128,
+> # epochs=25, lr=2e-4, seed=42, sample_every=5, num_sample_images=64,
+> # ckpt_dir, log_dir, fig_dir="report/figures"
+> ```
+>
+> batasan:
+>
+> - cuma bikin src/evaluate.py, jangan ubah file lain (config.py, data.py, diffusion.py, model.py, train.py, sample.py, plot_loss.py sudah diverifikasi)
+> - jangan pakai library diffusion siap pakai (diffusers dll)
+> - import absolut from src.x import y, dan bootstrap sys.path di level modul (bukan di dalam `__main__`), karena skrip dijalankan `python src/evaluate.py`
+> - num_workers=0 (Windows)
+> - keluaran: cetak minimal satu angka metrik ke konsol, simpan minimal satu gambar ke report/figures/"
+
+**Alasan Khusus:**
+FID secara teknis bisa dihitung (resize 28→299, replikasi channel), tapi yang diukur jadi artefak interpolasi bikubik dan korelasi antar-channel buatan, bukan kualitas sampel — angka ilmiah yang salah sasaran. Karena itu prompt tidak meminta "implementasikan FID", tapi meminta penilaian apakah FID layak, lalu alternatif yang bisa dipertanggungjawabkan di CPU tanpa bobot besar.
+
+Histogram intensitas piksel saja ditolak sebagai satu-satunya metrik karena hanya membaca distribusi marginal — gambar acak bisa punya histogram mirip tapi struktur spasialnya rusak. Tambahan yang diminta: metrik yang menangkap struktur (MMD pada ruang piksel, Wasserstein-1 pada magnitudo gradien Sobel).
+
+Agar angkanya bisa disimpulkan tanpa ambang universal, prompt meminta pembanding internal: jarak **Real vs Generated** dilaporkan bersama jarak **Real vs Real** (dua paruhan test set) sebagai lantai (floor) praktis. Tanpa floor itu, angka 0,03 atau 0,10 tidak bisa ditafsirkan.
+
+**Output Model:**
+`src/evaluate.py` — 252 baris, import absolut `from src...` dengan bootstrap `sys.path` di level modul. Isi: `_extract_real_images` (test set, dinormalkan ke [0,1]), `compute_rbf_mmd` (RBF multi-sigma 0,5/1/2/5/10 pada piksel ter-flatten), `_hist_wasserstein_1d` (jarak CDF 32 bin), `_sobel_gradient_magnitude` (kernel 3×3, `conv2d` groups=channel), `load_checkpoint_and_models`, `save_evaluation_figure`, `evaluate`.
+
+Default `num_eval_samples=256` → 256 gambar test dibelah dua (128 Real-A vs 128 Real-B sebagai referensi) dan 128 gambar generated dengan `fixed_seed=1234`. Keluaran: 6 angka di konsol + `report/figures/evaluation_metrics.png` (grid 4×4 sampel, histogram intensitas, histogram gradien Sobel).
+
+**Verifikasi checkpoint (dijalankan sebelum evaluasi):**
+
+```
+file            : C:\Users\rosiana\Documents\GenAI\checkpoints\ddpm_best.pt
+size            : 9637216 bytes
+tipe objek      : dict
+kunci top-level : ['config', 'epoch', 'loss', 'model_state_dict', 'optimizer_state_dict']
+epoch           : 24
+loss            : 0.04297231029496234
+jumlah tensor   : 130
+load_state_dict : strict=True LOLOS
+parameter model : 793,953
+semua bobot finite (tidak NaN/Inf): True
+forward dummy   : input (1, 1, 28, 28) -> output (1, 1, 28, 28)
+STATUS: CHECKPOINT VALID
+```
+
+Cocok dengan catatan Sesi #1–#5: epoch terbaik 24, loss 0,04297, 793.953 parameter.
+
+**Hasil Uji:**
+
+```
+=== Mini DDPM Evaluation Summary (CPU) ===
+Checkpoint      : C:\Users\rosiana\Documents\GenAI\checkpoints\ddpm_best.pt (epoch=24, loss=0.04297231029496234)
+Eval Samples    : 256 per set (image_size=28, channels=1)
+RBF-MMD (Real vs Gen)   : 0.038898  [Real Split Ref: 0.007159]
+Pixel W1 (Real vs Gen)  : 0.101793  [Real Split Ref: 0.008048]
+Sobel Grad W1 (R vs G)  : 0.042321  [Real Split Ref: 0.004876]
+Saved figure    : C:\Users\rosiana\Documents\GenAI\report\figures\evaluation_metrics.png
+```
+
+Exit code 0. Waktu jalan ±53 menit di CPU (1.000 timestep × batch 128, ±2,7–3,0 detik per forward pass). Gambar tersimpan 93.849 byte.
+
+#### 2. TAHAP PENANGANAN EROR / DEBUGGING
+
+##### Kegagalan #1 — `FileNotFoundError: checkpoints/ddpm_best.pt`
+
+```
+Traceback (most recent call last):
+  File "C:\Users\rosiana\Documents\GenAI\src\evaluate.py", line 252, in <module>
+    evaluate()
+  File "C:\Users\rosiana\Documents\GenAI\src\evaluate.py", line 198, in evaluate
+    cfg, model, diffusion, ckpt = load_checkpoint_and_models(ckpt_path, device)
+  File "C:\Users\rosiana\Documents\GenAI\src\evaluate.py", line 104, in load_checkpoint_and_models
+    ckpt = torch.load(ckpt_path, map_location=device)
+  File "C:\Users\rosiana\AppData\Local\Programs\Python\Python313\Lib\site-packages\torch\serialization.py", line 1565, in load
+    with _open_file_like(f, "rb") as opened_file:
+  File "C:\Users\rosiana\AppData\Local\Programs\Python\Python313\Lib\site-packages\torch\serialization.py", line 795, in _open_file_like
+    return _open_file(name_or_buffer, mode)
+  File "C:\Users\rosiana\AppData\Local\Programs\Python\Python313\Lib\site-packages\torch\serialization.py", line 776, in __init__
+    super().__init__(open(name, mode))  # noqa: SIM115
+FileNotFoundError: [Errno 2] No such file or directory: 'C:\\Users\rosiana\\Documents\\GenAI\\checkpoints\\ddpm_best.pt'
+```
+
+**Analisis & Solusi Kelompok:**
+Ini bukan error kode dan **tidak dikirim ke Gemini** — `checkpoints/` memang hanya berisi `.gitkeep` saat itu, jadi prasyarat belum terpenuhi. Kode yang sama, tanpa satu baris pun diubah, langsung jalan begitu file checkpoint dari Faqih dipasang. Mencatatnya sebagai "error Gemini" akan menyesatkan; mencetak angka evaluasi tanpa checkpoint akan mengarang.
+
+Satu detail teknis saat memulihkan file: checkpoint yang diterima berbentuk zip berisi direktori `ddpm_best/` (format `_use_new_zipfile_serialization`), sehingga harus disusun ulang menjadi satu file `ddpm_best.pt` sebelum bisa dibaca `torch.load`.
+
+**Hasil Uji:** error di atas hilang setelah checkpoint tersedia; run berikutnya exit 0 dengan angka di bagian Hasil Uji.
+
+##### Error kode pada sesi ini: tidak ada
+
+Kode dari Gemini jalan apa adanya pada percobaan pertama setelah prasyarat lengkap — `load_state_dict(strict=True)` lolos, seluruh bobot finite, dan `evaluate()` selesai tanpa traceback.
+
+#### 3. INTERPRETASI ANGKA
+
+| Metrik | Real vs Generated | Real vs Real (floor) | Rasio terhadap floor |
+|---|---|---|---|
+| RBF-MMD² | 0,038898 | 0,007159 | 5,4× |
+| Wasserstein-1 intensitas piksel | 0,101793 | 0,008048 | 12,6× |
+| Wasserstein-1 magnitudo gradien Sobel | 0,042321 | 0,004876 | 8,7× |
+
+Pembacaan: dua paruhan data asli hampir tidak bisa dibedakan metrik ini (MMD 0,007; W1 piksel 0,008), jadi floor-nya rendah dan bisa dipakai sebagai pembanding. Distribusi sampel model masih jauh di atas floor — 5–13× tergantung metrik — dengan jarak terbesar pada intensitas piksel.
+
+Panel histogram menjelaskan sumbernya: sampel generated menumpuk di intensitas mendekati 0 (latar hitam) jauh lebih tajam daripada data asli, artinya model cenderung menghasilkan gambar berkontras rendah dengan area gelap berlebih. Gradien Sobel relatif lebih dekat (8,7×) karena kedua distribusi sama-sama didominasi tepi lemah. Ini konsisten dengan tampilan visual grid 4×4: siluet pakaian terbaca, tapi blur dan tepi bergerigi.
+
+Kesimpulan yang bisa ditulis di laporan: model **belum** mencapai kualitas distribusi data asli, dan angka ini jadi baseline kuantitatif — bukan penilaian "sudah bagus" hanya karena loss training 0,043.
+
+### Sesi #7 — 25/11/2026
+
+- **Target Modul:** `src/ablation.py`
+- **Operator:** Mia Rosiana Santoso
+- **Tautan Sesi Chat:** https://share.gemini.google/mvsNfSQKek01
+- **Model LLM:** Gemini
+
+#### 1. TAHAP INISIASI (Meminta Kode Awal)
+
+**Prompt Kelompok:**
+
+> "konteks: aku punya proyek Mini DDPM from scratch untuk Fashion-MNIST 28x28 grayscale, sudah selesai training 25 epoch (loss 0.16831 -> 0.04297, model 793.953 parameter, base_ch=32, T=1000, beta linear 1e-4 sampai 0.02). sekarang sesi 7: aku harus bikin src/ablation.py yang membandingkan dua konfigurasi supaya kelihatan pilihan di config.py itu masuk akal, bukan asal comot. jalan di CPU, Windows, python 3.13, torch 2.14.0+cpu.
+>
+> yang mau aku bandingkan: noise schedule linear (yang sekarang dipakai) versus cosine. masing-masing 3 epoch saja, tujuannya lihat tren loss, bukan hasil final.
+>
+> masalahnya begini: src/diffusion.py cuma punya linear, beta-nya di-hardcode pakai torch.linspace di __init__, dan field beta_schedule di Config nggak pernah dibaca siapa-siapa. aku nggak boleh ngubah diffusion.py karena itu file punya rekan tim dan sudah diverifikasi. jadi kalau mau cosine, semua harus dari dalam ablation.py tanpa nyentuh file itu.
+>
+> yang aku bingung:
+>
+> 1. cara paling bersih nambah schedule cosine tanpa ngubah diffusion.py apa? subclass DDPM lalu hitung ulang buffer-nya, atau ada cara lain yang lebih sedikit menduplikasi rumus?
+>
+> 2. kalau lewat subclass, buffer apa saja yang wajib dihitung ulang supaya q_sample, p_losses, dan p_sample_loop tetap konsisten? aku nggak mau hasilnya beda bukan karena schedule-nya, tapi karena buffer-nya nggak sinkron.
+>
+> 3. 3 epoch cukup nggak buat lihat bedanya, atau selisihnya bakal ketutup noise? kalau ternyata dua-duanya mirip, gimana cara nulis kesimpulan yang jujur tanpa maksa bilang salah satu lebih bagus?
+>
+> 4. src/train.py selalu menulis checkpoints/ddpm_best.pt dan logs/train_history.json. ablation-ku nggak boleh nimpa dua file itu. aman nggak kalau aku cuma mengganti cfg.ckpt_dir dan cfg.log_dir per varian, atau harus punya loop training sendiri?
+>
+> yang aku minta ada di src/ablation.py, spesifik per fungsi:
+>
+> 1. CosineDDPM(DDPM)
+>    subclass dari DDPM yang menghitung ulang buffer schedule cosine di dalam ablation.py, tanpa mengubah src/diffusion.py.
+>
+> 2. run_variant(name, cfg, use_cosine)
+>    menjalankan training 3 epoch dengan seed dan urutan data yang sama untuk kedua varian, menyimpan checkpoint dan log ke folder terpisah (bukan checkpoints/ddpm_best.pt atau logs/train_history.json), lalu mencatat loss tiap epoch dan waktu eksekusinya.
+>
+> 3. plot_ablation(results, save_path)
+>    menggabungkan kurva loss kedua varian dalam satu grafik PNG dan menyimpannya ke report/figures/.
+>
+> 4. main()
+>    menjalankan varian linear dan cosine, mencetak tabel perbandingan di konsol (loss epoch 1/2/3, waktu per epoch, jumlah parameter), lalu memanggil fungsi plot.
+>
+> signature yang ada di repo (jangan diubah, ini verbatim):
+>
+> ```python
+> # src/config.py
+> @dataclass
+> class Config:
+>     dataset: str = "FashionMNIST"
+>     data_root: str = "data"
+>     subset_size: int = 15_000
+>     image_size: int = 28
+>     channels: int = 1
+>     num_workers: int = 0
+>     unet_base: int = 32
+>     time_embed_dim: int = 128
+>     num_groups: int = 8
+>     timesteps: int = 1000
+>     beta_start: float = 1e-4
+>     beta_end: float = 0.02
+>     beta_schedule: str = "linear"
+>     batch_size: int = 128
+>     epochs: int = 25
+>     lr: float = 2e-4
+>     seed: int = 42
+>     sample_every: int = 5
+>     num_sample_images: int = 64
+>     ckpt_dir: str = "checkpoints"
+>     log_dir: str = "logs"
+>     fig_dir: str = "report/figures"
+>     # metode: to_dict(), run_name()
+>
+> # src/diffusion.py
+> # buffer yang terdaftar di __init__: betas, alphas, alphas_cumprod,
+> # alphas_cumprod_prev, sqrt_alphas_cumprod, sqrt_one_minus_alphas_cumprod,
+> # sqrt_recip_alphas_cumprod, sqrt_recipm1_alphas_cumprod, posterior_variance,
+> # posterior_log_variance_clipped, posterior_mean_coef1, posterior_mean_coef2
+> class DDPM(nn.Module):
+>     def __init__(self, timesteps: int = 1000, beta_start: float = 1e-4,
+>                  beta_end: float = 0.02, clip_denoised: bool = True) -> None
+>     def q_sample(self, x0, t, noise=None) -> torch.Tensor
+>     def p_losses(self, model, x0, t, noise=None) -> torch.Tensor
+>     def predict_start_from_noise(self, x_t, t, noise)
+>     def q_posterior_mean_variance(self, x0, x_t, t)
+>     def p_mean_variance(self, model, x_t, t)
+>     def p_sample(self, model, x_t, t, t_index)
+>     def p_sample_loop(self, model, shape, device="cpu") -> torch.Tensor
+>
+> # src/model.py
+> class DDPMUNet(nn.Module):
+>     def __init__(self, in_channels: int = 1, base_ch: int = 48,
+>                  time_emb_dim: int = 192)
+>
+> # src/train.py
+> def set_seed(seed: int = 42)
+> def train(cfg: Config)   # loop tqdm; simpan ddpm_epoch_XXX.pt tiap epoch,
+>                          # ddpm_best.pt kalau loss terbaik, logs/train_history.json
+>
+> # src/data.py
+> def get_dataset(cfg, train: bool = True) -> Dataset
+> def get_dataloader(cfg, train: bool = True) -> DataLoader
+> ```
+>
+> batasan:
+>
+> - cuma bikin src/ablation.py, jangan ubah file lain di src/ (config.py, data.py, diffusion.py, model.py, train.py, sample.py, plot_loss.py sudah diverifikasi)
+> - jangan pakai library diffusion siap pakai (diffusers dll)
+> - import absolut from src.x import y, dan bootstrap sys.path di level modul (bukan di dalam `__main__`), karena skrip dijalankan `python src/ablation.py`
+> - num_workers=0 (Windows)
+> - 3 epoch per konfigurasi, jangan lebih
+> - checkpoint dan log ablation wajib di lokasi terpisah; checkpoints/ddpm_best.pt dan logs/train_history.json tidak boleh tersentuh
+> - seed dan urutan data harus sama untuk kedua varian
+> - keluaran: tabel perbandingan di konsol (loss epoch 1/2/3, waktu per epoch, jumlah parameter) + minimal satu PNG di report/figures/ berisi dua kurva loss dalam satu plot"
+
+**Alasan Khusus:**
+
+Ablation ini diminta untuk mempertanggungjawabkan pilihan `beta_schedule = "linear"` di `config.py`. Pemeriksaan repo sebelum menulis prompt menemukan bahwa field itu **tidak dibaca file mana pun** (grep: 1 definisi, 0 pemakaian) — `DDPM.__init__` meng-hardcode `torch.linspace(beta_start, beta_end, timesteps)`. Jadi pilihan schedule di proyek ini sebelumnya tidak punya dasar eksperimen sama sekali; ablation dibuat untuk mengisinya.
+
+Karena `src/diffusion.py` milik rekan tim dan tidak boleh disentuh, cosine harus datang dari subclass di dalam `ablation.py`. Dua belas nama buffer didaftarkan verbatim di prompt supaya jawaban tidak menebak nama buffer yang harus dihitung ulang — risiko yang disebut eksplisit di pertanyaan 2 (hasil beda bukan karena schedule, tapi karena buffer tidak sinkron).
+
+Pertanyaan 4 diajukan lebih dulu daripada meminta kode karena `src/train.py` menulis path statis: kalau `train()` dipanggil ulang dengan `cfg.ckpt_dir`/`cfg.log_dir` yang diganti, `DDPM` standar tetap yang diinstansiasi di dalamnya sehingga varian cosine tidak akan terpakai. Prompt meminta jawaban eksplisit soal ini sebelum menulis loop training sendiri.
+
+**Output Model:**
+`src/ablation.py` — 316 baris, import absolut `from src...` dengan bootstrap `ROOT_DIR = Path(__file__).resolve().parents[1]` di level modul. Isi: `CosineDDPM(DDPM)` (hitung `alpha_bar` cosine `f(t)=cos((t/T+s)/(1+s)·π/2)²`, `s=0.008`, di float64 lalu cast float32, `betas = 1 - ᾱ_t/ᾱ_{t-1}` di-clamp `[1e-4, 0.999]`, lalu `register_buffer` menimpa 12 buffer induk; `raise KeyError` bila nama buffer tidak ada di induk), `run_variant(name, cfg, use_cosine)` (`copy.deepcopy(cfg)`, seed dan `DataLoader` sama untuk kedua varian, ckpt ke `checkpoints/ablation/<name>/`, log ke `logs/ablation/<name>_history.json`, payload `{epoch, variant, beta_schedule, model_state_dict, optimizer_state_dict, loss}`), `plot_ablation(results, save_path)` (figsize 8.5×5.0 dpi 150; linear `#1f77b4` bulat solid, cosine `#d95f02` kotak putus-putus), `_print_comparison_table`, `main()`.
+
+**Hasil Uji (run final, 2 epoch per varian):**
+
+```
+[Ablation] Menjalankan varian 'linear' (linear)...
+  Epoch 1/2 | Loss: 0.18872 | Waktu: 911.23 dtk
+  Epoch 2/2 | Loss: 0.08593 | Waktu: 868.07 dtk
+
+[Ablation] Menjalankan varian 'cosine' (cosine)...
+  Epoch 1/2 | Loss: 0.25580 | Waktu: 854.90 dtk
+  Epoch 2/2 | Loss: 0.13699 | Waktu: 836.77 dtk
+
+-------------------------------------------------------------------------
+HASIL ABLATION STUDY NOISE SCHEDULE (3 EPOCH)
+-------------------------------------------------------------------------
+Varian     |    Params |   Epoch 1 |   Epoch 2 | Avg Time/Ep | Total Time
+-------------------------------------------------------------------------
+linear     |   793,953 |   0.18872 |   0.08593 |    889.65 s |  1779.29 s
+cosine     |   793,953 |   0.25580 |   0.13699 |    845.84 s |  1691.67 s
+-------------------------------------------------------------------------
+
+[Ablation] Grafik perbandingan disimpan ke: report\figures\ablation_noise_schedule.png
+```
+
+Exit code 0. Total ±58 menit. `logs/ablation/linear_history.json` dan `logs/ablation/cosine_history.json` berisi `num_params: 793953` (identik dengan model utama), `seed: 42`, `timesteps: 1000`, `unet_base: 32`. Gambar 95.627 byte. `checkpoints/ddpm_best.pt` mtime tetap `2026-11-25 18:59:06` — tidak tersentuh; `logs/train_history.json` tidak dibuat ulang.
+
+#### 2. TAHAP PENANGANAN EROR / DEBUGGING
+
+##### Error kode pada sesi ini: tidak ada
+
+Kode dari Gemini jalan apa adanya pada percobaan pertama — tidak ada traceback dari `CosineDDPM`, `run_variant`, `plot_ablation`, maupun `main`. Signature yang ditebak di jawaban (`get_dataloader(cfg, train=True)` mengembalikan `(x0, y)`, `p_losses(model, x0, t)`, `DDPMUNet(in_channels, base_ch, time_emb_dim)`) cocok dengan isi repo, jadi tidak ada perbaikan import/argumen yang perlu dikirim balik ke Gemini.
+
+##### Hentikan run pertama (bukan error kode)
+
+Run pertama memakai 3 epoch sesuai prompt. Hasil nyata epoch pertama:
+
+```
+[Ablation] Menjalankan varian 'linear' (linear)...
+  Epoch 1/3 | Loss: 0.18872 | Waktu: 915.48 dtk
+```
+
+915,48 detik per epoch berarti 6 epoch ≈ 92 menit — melewati batas waktu sesi (1 jam). Proses dihentikan manual oleh operator (`py.exe` pid 13744 → `python.exe` pid 3948, `Stop-Process -Force`), **bukan crash** (wrapper `tee` tetap melaporkan exit 0 karena pipa, bukan karena python selesai), dan hasilnya tidak dipalsukan: tidak ada angka epoch 2/3 yang dikarang untuk run ini.
+
+Tindakan operator sebelum run kedua (perubahan kecil, bukan logika model):
+
+1. `ABLATION_EPOCHS = 2` sebagai konstanta modul, dipakai `run_variant` dan `main` — 3 epoch per varian diturunkan jadi 2 karena batas waktu, dicatat di komentar kode.
+2. Judul grafik dan header tabel dibuat dinamis mengikuti jumlah epoch (sebelumnya hardcode "Epoch 1/2/3" dan "(3 EPOCH)", sehingga akan `IndexError` di `losses[2]` kalau dijalankan 2 epoch). Perbaikan ini dikerjakan **setelah** run final selesai, jadi yang tercetak di konsol run final masih judul lama `(3 EPOCH)` — dikutip apa adanya di blok output di atas; hasil verifikasi ulang hanya syntax check, tidak ada run penuh ketiga.
+
+Bukti bahwa pemotongan epoch tidak mengubah apa pun selain durasi: loss epoch 1 varian linear pada run kedua **identik** dengan run pertama (0.18872) karena seed dan urutan data sama.
+
+**Keputusan akhir:** hasil 2 epoch dipakai untuk analisis tren, tidak diulang ke 3 epoch. Batas waktu CPU dan proyeksinya sudah tercatat di atas, jadi pengurangan epoch terdokumentasi, bukan hasil yang dipotong diam-diam.
+
+#### 3. INTERPRETASI ANGKA
+
+| Varian | Parameter | Loss epoch 1 | Loss epoch 2 | Rata-rata waktu/epoch | Total |
+|---|---|---|---|---|---|
+| Linear | 793.953 | 0,18872 | 0,08593 | 889,65 s | 1779,29 s |
+| Cosine | 793.953 | 0,25580 | 0,13699 | 845,84 s | 1691,67 s |
+
+Pembacaan yang jujur: pada dua epoch ini **linear memberi loss lebih rendah**, dan penurunannya juga lebih dalam (linear −0,1028; cosine −0,1188). Cosine tidak lebih buruk secara laju penurunan relatif, tapi level loss-nya konsisten lebih tinggi di kedua epoch.
+
+Alasannya bukan "cosine jelek", melainkan perbedaan skala target: schedule cosine mempertahankan `ᾱ_t` lebih tinggi di timestep awal, sehingga noise yang ditambahkan pada `x_t` lebih kecil dan MSE prediksi noise-nya bergerak di skala yang berbeda dari linear. Dua epoch juga jauh dari konvergen (model utama butuh 24 epoch untuk mencapai 0,043), jadi **tidak cukup** untuk menyimpulkan schedule mana yang lebih baik — yang bisa ditulis di laporan hanya: pada anggaran 2 epoch dan subset 15.000 gambar, linear lebih rendah loss-nya, dan perbandingan ini belum menjawab kualitas sampel.
+
+Angka waktu: linear 889,65 s/epoch vs cosine 845,84 s/epoch (cosine ±5% lebih cepat). Selisih ini bukan efek schedule, melainkan variasi beban CPU antar-run — kedua varian memakai arsitektur dan jumlah parameter identik (793.953), jadi tidak ada alasan komputasional cosine lebih murah.
+
+Yang bisa diklaim sebagai temuan teknis justru bagian non-angka: `CosineDDPM` berhasil menimpa 12 buffer `DDPM` tanpa menyentuh `src/diffusion.py`, dan artefak ablation benar-benar terisolasi (`checkpoints/ablation/*`, `logs/ablation/*`, mtime `checkpoints/ddpm_best.pt` tidak berubah).
+
+### Sesi #8 — 26/11/2026
+
+- **Target Modul:** `src/figures.py`
+- **Operator:** Mia Rosiana Santoso
+- **Tautan Sesi Chat:** https://share.gemini.google/NhHSVgoMabeC
+- **Model LLM:** Gemini
+
+#### 1. TAHAP INISIASI (Meminta Kode Awal)
+
+**Prompt Kelompok:**
+
+> konteks: aku punya proyek Mini DDPM from scratch untuk Fashion-MNIST 28x28 grayscale, training 25 epoch sudah selesai (loss 0.16831 -> 0.04297, 793.953 parameter, base_ch=32, time_emb_dim=128, T=1000 linear beta 1e-4 sampai 0.02). jalan di CPU, Windows, python 3.13, torch 2.14.0+cpu.
+>
+> sekarang sesi 8, sesi terakhir: aku butuh SATU figur buat laporan yang membandingkan gambar asli dataset dengan hasil sampling model, berdampingan, biar pembaca bisa menilai sendiri tanpa harus percaya angka loss. file baru src/figures.py, keluarannya report/figures/real_vs_generated.png.
+>
+> yang sudah ada di report/figures/ (jangan bikin ulang): loss_curve.png, progression_epochs_1_to_25.png, samples_epoch_001..025.png, evaluation_metrics.png (isinya grid 4x4 sampel + histogram intensitas + histogram gradien Sobel), ablation_noise_schedule.png.
+>
+> yang aku bingung:
+>
+> 1. sampling 1000 langkah itu mahal di CPU: sesi 6 butuh sekitar 53 menit untuk 128 gambar, dan tensor hasilnya tidak kusimpan. kalau grid cuma butuh 6-12 gambar, apakah sampling ulang dengan N kecil masih jujur sebagai wakil model, atau harus tetap N=128? gimana nulis caption biar nggak overclaim?
+>
+> 2. kalau grid 2 baris x 6 kolom, kolom ke-i berisi gambar asli di atas dan generated di bawah, pembaca wajar menyimpulkan "gambar bawah dihasilkan dari gambar atas". padahal generated tidak punya label dan tidak berpasangan. susunan mana yang paling tidak menyesatkan: label kelas cuma di baris asli, baris generated tanpa label, atau dua panel terpisah dengan judul sendiri?
+>
+> 3. urutan gambar asli: kalau kuambil 6 gambar pertama dari test set, bisa jadi isinya 4 ankle boot semua. perlu stratifikasi per kelas (1 gambar per kelas) atau cukup seed tetap lalu tulis di caption bahwa itu sampel acak?
+>
+> 4. src/evaluate.py sudah punya load_checkpoint_and_models() dan _extract_real_images() (private, pakai underscore). lebih bersih kalau src/figures.py mengimpor yang private itu, atau menduplikasi 10 baris logika denormalisasi? aku nggak mau bikin file baru yang isinya salinan, tapi juga nggak mau impor fungsi private lalu rusak kalau rekan tim refactor.
+>
+> yang aku minta ada di src/figures.py, spesifik per fungsi:
+>
+> 1. build_comparison_grid(real, fake, real_labels, class_names, save_path, n_cols=6)
+>    satu PNG dua baris: baris atas gambar asli beserta label kelasnya, baris bawah hasil sampling tanpa label; tiap panel tanpa tick/axis; ada judul baris "Data asli (test set)" dan "Hasil sampling (T=1000, seed 1234)".
+>
+> 2. main()
+>    memuat checkpoint, mengambil gambar asli dan hasil sampling, memanggil build_comparison_grid, lalu mencetak path PNG yang disimpan, shape kedua tensor, dan waktu eksekusi.
+>
+> signature yang ada di repo (jangan diubah, ini verbatim):
+>
+> ```python
+> # src/config.py
+> @dataclass
+> class Config:
+>     dataset: str = "FashionMNIST"
+>     data_root: str = "data"
+>     subset_size: int = 15_000
+>     image_size: int = 28
+>     channels: int = 1
+>     num_workers: int = 0
+>     unet_base: int = 32
+>     time_embed_dim: int = 128
+>     num_groups: int = 8
+>     timesteps: int = 1000
+>     beta_start: float = 1e-4
+>     beta_end: float = 0.02
+>     beta_schedule: str = "linear"
+>     batch_size: int = 128
+>     epochs: int = 25
+>     lr: float = 2e-4
+>     seed: int = 42
+>     sample_every: int = 5
+>     num_sample_images: int = 64
+>     ckpt_dir: str = "checkpoints"
+>     log_dir: str = "logs"
+>     fig_dir: str = "report/figures"
+>
+> # src/diffusion.py
+> class DDPM(nn.Module):
+>     def __init__(self, timesteps: int = 1000, beta_start: float = 1e-4,
+>                  beta_end: float = 0.02, clip_denoised: bool = True) -> None
+>     def p_sample_loop(self, model, shape, device="cpu") -> torch.Tensor   # output [-1, 1]
+>
+> # src/model.py
+> class DDPMUNet(nn.Module):
+>     def __init__(self, in_channels: int = 1, base_ch: int = 48,
+>                  time_emb_dim: int = 192)
+>
+> # src/sample.py
+> def generate_with_fixed_noise(model: DDPMUNet, diffusion: DDPM, num_samples: int,
+>                               img_size: int, channels: int, device: torch.device,
+>                               fixed_seed: int = 1234) -> torch.Tensor
+>     # torch.manual_seed(fixed_seed) di dalam, output sudah didenormalisasi ke [0, 1]
+>
+> # src/evaluate.py
+> def load_checkpoint_and_models(ckpt_path: Path, device: torch.device
+>                                ) -> tuple[Config, DDPMUNet, DDPM, dict]
+> def _extract_real_images(cfg: Config, max_samples: int) -> torch.Tensor
+>     # ambil dari test set, output [0, 1], shape (N, 1, 28, 28)
+>
+> # src/data.py
+> def get_dataset(cfg, train: bool = True) -> Dataset   # transform: ToTensor + Normalize(0.5, 0.5)
+> def get_dataloader(cfg, train: bool = True) -> DataLoader   # batch -> (x, y), x di [-1, 1]
+>
+> # isi checkpoint (src/train.py): {"epoch", "model_state_dict",
+> #   "optimizer_state_dict", "loss", "config"}  -> checkpoints/ddpm_best.pt (epoch 24, loss 0.04297)
+>
+> # urutan kelas FashionMNIST: 0 T-shirt/top, 1 Trouser, 2 Pullover, 3 Dress,
+> # 4 Coat, 5 Sandal, 6 Shirt, 7 Sneaker, 8 Bag, 9 Ankle boot
+> ```
+>
+> batasan:
+>
+> - cuma bikin src/figures.py, jangan ubah file lain di src/ (config.py, data.py, diffusion.py, model.py, train.py, sample.py, plot_loss.py, evaluate.py, ablation.py sudah diverifikasi)
+> - jangan pakai library diffusion siap pakai (diffusers dll)
+> - import absolut from src.x import y, dan bootstrap sys.path di level modul (bukan di dalam __main__), karena skrip dijalankan `python src/figures.py`
+> - num_workers=0 (Windows)
+> - jumlah gambar generated maksimal 12 (biaya sampling CPU), seed sampling tetap 1234 supaya bisa diulang
+> - jangan menimpa PNG yang sudah ada di report/figures/; satu file baru: real_vs_generated.png
+> - keluaran: minimal satu PNG di report/figures/
+
+**Alasan Khusus:**
+
+Tiga item brief Sesi 8 adalah grid perbandingan, histogram overlay, dan grid ablasi. Dua yang terakhir sudah tertutup sesi sebelumnya — `evaluation_metrics.png` (sesi 6) sudah memuat histogram intensitas dan gradien Sobel, `ablation_noise_schedule.png` (sesi 7) sudah memuat dua kurva loss dalam satu plot. Jadi sesi 8 difokuskan ke satu figur yang belum ada: grid asli vs sampling.
+
+Pemeriksaan repo sebelum menulis prompt: (1) isi `report/figures/` didaftar verbatim di prompt supaya Gemini tidak membuat ulang file yang sudah ada; (2) `_extract_real_images()` di `src/evaluate.py` hanya mengembalikan tensor gambar tanpa label `y` — kalau diimpor, label kelas untuk baris atas tidak akan pernah didapat, sehingga pertanyaan 4 diajukan eksplisit; (3) biaya sampling diambil dari angka nyata sesi 6 (128 gambar ±53 menit) untuk mempertanggungjawabkan batas maksimal 12 gambar.
+
+Dua keputusan diambil sebelum prompt dikirim: batas maksimal 12 gambar (grid 2×6, 6 asli + 6 generated) supaya waktu CPU aman, dan pertanyaan 2 (risiko pembaca menyimpulkan pasangan palsu) dipertahankan karena menentukan judul/caption.
+
+**Output Model:**
+`src/figures.py` — 190 baris. Isi: bootstrap `PROJECT_ROOT` di level modul, `FASHION_MNIST_CLASSES` (10 kelas), `_select_stratified_real_samples(cfg, n_samples=6, seed=42)`, `build_comparison_grid(...)` (2×n_cols, `hspace=0.48`, label kelas sebagai `xlabel` hanya di baris atas, judul baris lewat `fig.text` pada posisi axes hasil `get_position()`, simpan `dpi=200`), dan `main()` (muat checkpoint → ambil 6 gambar asli → `generate_with_fixed_noise(..., fixed_seed=1234)` → cetak path/shape/waktu).
+
+Jawaban Gemini atas 4 kebingungan (ringkas):
+1. Sampling N kecil tetap sah: `DDPMUNet` memakai `GroupNorm(num_groups=8)`, bukan BatchNorm, jadi tiap sampel independen; 6 sampel pertama dengan `fixed_seed=1234` identik pixel-for-pixel dengan 6 pertama batch N=128.
+2. Judul baris terpisah + label hanya di baris asli + `hspace` lebar; caption menegaskan baris bawah unconditional.
+3. Sampling acak terstratifikasi dengan seed tetap, satu gambar per kelas.
+4. Jangan impor `_extract_real_images()`: private dan tidak mengembalikan label; cukup `load_checkpoint_and_models` + `get_dataset(cfg, train=False)`, denormalisasi satu baris.
+
+**Hasil Uji (run pertama, kode Gemini apa adanya):**
+
+```
+Figur disimpan   : report/figures/real_vs_generated.png
+Shape tensor real: (6, 1, 28, 28)
+Shape tensor fake: (6, 1, 28, 28)
+Waktu eksekusi   : 72.32 detik (1.21 menit)
+```
+
+Exit code 0, tanpa traceback. Tapi pemeriksaan figur menunjukkan hanya **4 kelas unik** (Trouser, Sandal, Bag, Ankle boot) karena Sandal dan Ankle boot masing-masing muncul dua kali — cabang `overflow_items` mengisi slot sebelum semua kelas ditemukan. Caption yang disarankan Gemini menyebut "satu sampel per kelas", jadi caption itu belum benar untuk output run pertama.
+
+**Perbaikan operator (setelah run pertama):** cabang `overflow_items` dihapus; kelas yang sudah terpilih di-`continue`; loop berhenti setelah 6 kelas unik terkumpul. Perubahan hanya di `_select_stratified_real_samples`, tidak menyentuh `build_comparison_grid` maupun bagian sampling.
+
+**Hasil Uji (run kedua, setelah perbaikan):**
+
+```
+Figur disimpan   : report/figures/real_vs_generated.png
+Shape tensor real: (6, 1, 28, 28)
+Shape tensor fake: (6, 1, 28, 28)
+Waktu eksekusi   : 69.03 detik (1.15 menit)
+```
+
+Label baris atas run kedua: T-shirt/top, Trouser, Coat, Sandal, Bag, Ankle boot — 6 kelas unik, tanpa duplikat. `real_vs_generated.png` 62.189 byte, mtime `2026-11-26 00:21:06`. PNG lain di `report/figures/` tidak tersentuh (mtime tetap 25/11). Seed sampling tetap 1234 pada kedua run; kesamaan pixel-level baris bawah antar-run tidak diverifikasi ulang.
+
+#### 2. TAHAP PENANGANAN EROR / DEBUGGING
+
+##### Error kode pada sesi ini: tidak ada
+
+Kode dari Gemini jalan apa adanya pada percobaan pertama: `load_checkpoint_and_models`, `get_dataset(cfg, train=False)`, `generate_with_fixed_noise(fixed_seed=1234)`, dan `build_comparison_grid` semuanya cocok dengan signature repo. Tidak ada traceback, tidak ada perbaikan import/argumen yang dikirim balik ke Gemini.
+
+##### Kendala render Gemini (bukan error kode)
+
+Jawaban Gemini macet dua kali di tengah streaming; setelah `ctrl+r` tab sempat render kosong. RAM saat kejadian 761 MB sisa dari 6.024 MB dengan chrome ±1,29 GB, jadi tab YouTube ditutup untuk membebaskan memori lalu tab Gemini di-reload. Setelah reload jawaban muncul utuh. Teks jawaban diambil dengan `ctrl+a` → `ctrl+c` (16.997 byte) lalu disimpan sebagai berkas teks; kode `src/figures.py` di repo disusun dari teks itu, bukan diketik ulang dari ingatan.
+
+##### Koreksi stratifikasi kelas
+
+Dijelaskan di bagian 1: run pertama menghasilkan label duplikat, caption Gemini jadi tidak akurat, dan pemilihan sampel diperbaiki sebelum run kedua. Ini kesalahan logika pemilihan sampel, bukan crash — exit code kedua run sama-sama 0.
+
+#### 3. INTERPRETASI ANGKA
+
+| Run | Waktu eksekusi | Kelas unik di baris atas | Ukuran PNG |
+|---|---|---|---|
+| 1 (kode Gemini apa adanya) | 72,32 dtk | 4 dari 6 | 59.301 B |
+| 2 (setelah perbaikan stratifikasi) | 69,03 dtk | 6 dari 6 | 62.189 B |
+
+Waktu nyata jauh di bawah perkiraan Gemini (2,5–3 menit) dan konsisten dengan biaya sesi 6: 128 gambar ±53 menit ≈ 25 detik/gambar, sehingga 6 gambar ≈ 2,5 menit sudah termasuk muat checkpoint dan render. Selisih 3 detik antar-run adalah variasi beban CPU, bukan efek perbaikan.
+
+Klaim Gemini bahwa 6 sampel pertama identik pixel-for-pixel dengan batch N=128 **belum diverifikasi di sesi ini** — membuktikannya butuh sampling N=128 (±53 menit) dan tensor hasil sesi 6 tidak disimpan. Yang bisa ditulis di laporan: jumlah gambar kecil dipakai karena alasan biaya CPU, sampling memakai seed tetap 1234 tanpa seleksi pasca-sampling, dan evaluasi distribusi skala penuh tetap merujuk ke `evaluation_metrics.png` (N=128).
+
+Caption yang disarankan Gemini (dikutip apa adanya, sudah sesuai setelah perbaikan stratifikasi):
+
+> Gambar X. Perbandingan kualitatif antara sampel data asli test set Fashion-MNIST (baris atas, dipilih terstratifikasi satu sampel per kelas menggunakan seed 42) dan enam sampel pertama yang dihasilkan model Mini DDPM pada epoch 24 (T=1000, fixed seed 1234, tanpa seleksi pasca-sampling) pada baris bawah. Karena model dilatih secara unconditional, gambar pada baris bawah tidak memiliki label kelas dan tidak berpasangan secara kolom dengan gambar asli di atasnya.
+
+Satu hal yang tidak bisa diklaim dari figur ini: kualitas baris bawah. Sampel tampak lebih blur dan kontrasnya lebih rendah dibanding data asli — itu konsisten dengan loss 0,04297 dan tidak boleh ditulis sebagai bukti model "berhasil" tanpa metrik sesi 6 (RBF-MMD 0,038898; Pixel W1 0,101793; Sobel Grad W1 0,042321).
+
+---
+
 ### Ringkasan Pola Interaksi
 
 | Sesi | Prompt | Error nyata | Sumber perbaikan |
@@ -469,8 +1000,13 @@ Bootstrap dipasang di **atas** `data.py`, sebelum import `src.config`. Blok `sys
 | 3 | 1 | 0 | — |
 | 4 | 1 | 0 | — |
 | 5 | 1 + 4 lanjutan | 4 (`UNet`, `checkpoint_dir`, import path, `src` not found) | Gemini |
+| 6 | 1 | 0 error kode (`FileNotFoundError` murni prasyarat: checkpoint belum ada) | — |
+| 7 | 1 | 0 error kode (run pertama dihentikan manual: proyeksi 92 menit > batas 1 jam) | operator (epoch 3→2, header dinamis) |
+| 8 | 1 | 0 error kode (label kelas duplikat: 4 dari 6 kelas unik) | operator (hapus cabang `overflow_items`, wajib 1 gambar/kelas) |
 
 **Pelajaran utama:** LLM tidak bisa menebak isi file yang tidak diberikan. Dua dari empat error di proyek ini berakar pada satu hal yang sama — konteks kode tidak lengkap di prompt. Setelah signature verbatim ditempel, kode langsung nyambung. Kesimpulan operasional: **tempel signature, bukan ringkasan.**
+
+Sesi #6–#8 tidak menghasilkan error kode sama sekali: dengan signature dan struktur repo yang ditempel verbatim, kode Gemini langsung jalan. Dua koreksi yang tetap terjadi berada di level logika, bukan sintaks — epoch ablasi diturunkan 3→2 karena batas waktu, dan stratifikasi kelas diperbaiki karena run pertama hanya menghasilkan 4 kelas unik. Keduanya dikerjakan operator dan dicatat apa adanya, bukan disembunyikan.
 
 
 ---
@@ -509,7 +1045,58 @@ Interpretasi kualitatif:
 - **Epoch 5–10:** siluet mulai terbaca — bentuk memanjang (calon celana), blok persegi (calon tas).
 - **Epoch 15–25:** item Fashion-MNIST sudah dapat dikenali — pullover, trouser, sepatu, tas, gaun. Tepi masih agak lembek, wajar untuk 793 ribu parameter dan 25 epoch.
 
-### 3.3 Pembahasan
+### 3.3 Evaluasi Kuantitatif (Sesi #6)
+
+Loss training 0,04297 hanya mengukur kemampuan model menebak noise, bukan kemiripan hasil sampling dengan data asli. Karena itu Sesi #6 menghasilkan `src/evaluate.py` dengan tiga metrik yang bisa dihitung di CPU tanpa bobot eksternal, masing-masing dilaporkan bersama pembanding internal **Real vs Real** (dua paruhan test set) sebagai lantai praktis.
+
+| Metrik | Real vs Generated | Real vs Real (floor) | Rasio terhadap floor |
+|---|---|---|---|
+| RBF-MMD² | 0,038898 | 0,007159 | 5,4× |
+| Wasserstein-1 intensitas piksel | 0,101793 | 0,008048 | 12,6× |
+| Wasserstein-1 magnitudo gradien Sobel | 0,042321 | 0,004876 | 8,7× |
+
+Konfigurasi run: checkpoint `checkpoints/ddpm_best.pt` (epoch 24, loss 0,04297), 256 gambar test dibelah dua (128 Real-A vs 128 Real-B) dan 128 gambar generated dengan `fixed_seed=1234`, ±53 menit di CPU.
+
+![Metrik evaluasi: grid sampel, histogram intensitas, histogram gradien Sobel](../report/figures/evaluation_metrics.png)
+
+Pembacaan: dua paruhan data asli hampir tidak terbedakan (MMD 0,007; W1 piksel 0,008), sehingga floor-nya rendah dan layak dipakai sebagai pembanding. Sampel model masih 5–13× di atas floor, dengan jarak terbesar pada intensitas piksel. Panel histogram menjelaskan sumbernya: sampel generated menumpuk di intensitas mendekati 0 (latar hitam) jauh lebih tajam daripada data asli, artinya model cenderung menghasilkan gambar berkontras rendah dengan area gelap berlebih. Gradien Sobel relatif lebih dekat (8,7×) karena kedua distribusi sama-sama didominasi tepi lemah.
+
+Kesimpulan yang bisa ditulis: model **belum** mencapai kualitas distribusi data asli, dan angka ini menjadi baseline kuantitatif — bukan penilaian "sudah bagus" hanya karena loss training rendah.
+
+### 3.4 Ablasi Noise Schedule (Sesi #7)
+
+Field `beta_schedule = "linear"` di `src/config.py` sebelumnya tidak dibaca file mana pun (`DDPM.__init__` meng-hardcode `torch.linspace`). Sesi #7 mengisi kekosongan itu: `src/ablation.py` menjalankan dua varian schedule — linear (dipakai model utama) dan cosine — dengan seed dan urutan data identik, masing-masing **2 epoch** (bukan 3: run pertama 915,48 detik/epoch, proyeksi 6 epoch ±92 menit melewati batas waktu sesi, dan run itu dihentikan manual, bukan dipalsukan).
+
+| Varian | Parameter | Loss epoch 1 | Loss epoch 2 | Rata-rata waktu/epoch | Total |
+|---|---|---|---|---|---|
+| Linear | 793.953 | 0,18872 | 0,08593 | 889,65 s | 1779,29 s |
+| Cosine | 793.953 | 0,25580 | 0,13699 | 845,84 s | 1691,67 s |
+
+![Perbandingan kurva loss linear vs cosine](../report/figures/ablation_noise_schedule.png)
+
+Pada dua epoch ini linear memberi loss lebih rendah dan penurunan yang lebih dalam. Cosine tidak lebih buruk secara laju relatif, tetapi level loss-nya konsisten lebih tinggi di kedua epoch — bukan karena "cosine jelek", melainkan karena schedule cosine mempertahankan ᾱ_t lebih tinggi di timestep awal sehingga MSE prediksi noise bergerak di skala berbeda. Dua epoch jauh dari konvergen (model utama butuh 24 epoch untuk mencapai 0,043), jadi yang boleh ditulis hanya: pada anggaran 2 epoch dan subset 15.000 gambar, linear lebih rendah loss-nya, dan perbandingan ini belum menjawab kualitas sampel.
+
+Selisih waktu (linear 889,65 s vs cosine 845,84 s per epoch, ±5%) bukan efek schedule: jumlah parameter kedua varian identik, jadi selisih itu variasi beban CPU antar-run. Temuan teknis yang bisa diklaim justru bagian non-angka: `CosineDDPM` berhasil menimpa 12 buffer `DDPM` tanpa menyentuh `src/diffusion.py`, dan artefak ablation terisolasi penuh (`checkpoints/ablation/*`, `logs/ablation/*`, `checkpoints/ddpm_best.pt` tidak berubah).
+
+### 3.5 Perbandingan Kualitatif Asli vs Sampling (Sesi #8)
+
+![Perbandingan data asli test set dan hasil sampling model](../report/figures/real_vs_generated.png)
+
+Baris atas: enam gambar asli test set, dipilih terstratifikasi satu gambar per kelas dengan seed 42 (T-shirt/top, Trouser, Coat, Sandal, Bag, Ankle boot). Baris bawah: enam sampel pertama hasil `generate_with_fixed_noise(..., fixed_seed=1234)`, tanpa label dan tanpa seleksi pasca-sampling. Waktu eksekusi 69,03 detik di CPU untuk 6 gambar, termasuk muat checkpoint.
+
+Grid sengaja dipisah menjadi dua pita horizontal dengan judul baris sendiri dan `hspace` lebar, supaya pembaca tidak menyimpulkan kolom ke-i adalah pasangan "gambar asli → hasil generasinya". Model dilatih *unconditional*, jadi baris bawah tidak berpasangan secara kolom dengan baris atas.
+
+Jumlah gambar dibatasi 6 (maksimal 12 sesuai batasan prompt) karena biaya sampling CPU: sesi #6 membutuhkan ±53 menit untuk 128 gambar (±25 detik/gambar). Klaim bahwa 6 sampel pertama identik *pixel-for-pixel* dengan 6 sampel pertama batch N=128 belum diverifikasi ulang di sesi ini — membuktikannya butuh sampling N=128 dan tensor hasil sesi #6 tidak disimpan — sehingga di laporan ini jumlah kecil diposisikan sebagai keterbatasan biaya komputasi, bukan sebagai bukti kesetaraan statistik. Evaluasi distribusi skala penuh tetap merujuk ke `evaluation_metrics.png` (N=128).
+
+Satu koreksi yang tercatat jujur: kode pertama Gemini menghasilkan hanya **4 kelas unik** (Sandal dan Ankle boot masing-masing muncul dua kali) karena cabang `overflow_items` mengisi slot sebelum semua kelas ditemukan, sehingga klaim "satu sampel per kelas" di caption belum benar. Cabang itu dibuang (wajib satu gambar per kelas), run kedua menghasilkan 6 kelas unik dalam 69,03 detik.
+
+Caption yang dipakai:
+
+> Gambar X. Perbandingan kualitatif antara sampel data asli test set Fashion-MNIST (baris atas, dipilih terstratifikasi satu sampel per kelas menggunakan seed 42) dan enam sampel pertama yang dihasilkan model Mini DDPM pada epoch 24 (T=1000, fixed seed 1234, tanpa seleksi pasca-sampling) pada baris bawah. Karena model dilatih secara unconditional, gambar pada baris bawah tidak memiliki label kelas dan tidak berpasangan secara kolom dengan gambar asli di atasnya.
+
+Yang tidak boleh diklaim dari figur ini: kualitas baris bawah. Sampel tampak lebih blur dan kontrasnya lebih rendah dibanding data asli — konsisten dengan angka sesi #6 (W1 piksel 12,6× di atas floor) dan tidak boleh ditulis sebagai bukti model "berhasil".
+
+### 3.6 Pembahasan
 
 **Kenapa tidak pakai metrik FID.** FID butuh *feature extractor* terlatih (InceptionV3) pada gambar 299×299 berwarna. Fashion-MNIST 28×28 grayscale harus di-*resize* dan direplikasi ke 3 channel, yang mendistorsi distribusi dan membuat angka FID tidak bermakna. Untuk proyek ini, bukti kualitas yang jujur adalah **grid progres dengan fixed noise** ditambah **kurva loss**, bukan angka FID yang menyesatkan.
 
@@ -522,7 +1109,7 @@ Interpretasi kualitatif:
 3. Arsitektur sengaja kecil (793 ribu parameter) agar bisa dilatih tanpa GPU.
 4. Tidak ada evaluasi kuantitatif terhadap *mode collapse* — untuk DDPM risiko ini kecil dibanding GAN, tapi tetap tidak diukur secara formal.
 
-### 3.4 Reproduksi
+### 3.7 Reproduksi
 
 ```bash
 python -m pip install -r requirements.txt
@@ -543,6 +1130,23 @@ Di Colab GPU T4: buka `colab/jalankan_di_colab.ipynb`, jalankan sel berurutan.
 Hasil `git log --pretty=format:"%h | %an | %ad | %s" --date=short`:
 
 ```
+fd6e69f | Mia Rosiana Santoso | 2026-11-26 | docs(log): daftar isi sesi 6-8 + nama operator Mia
+dbc8e85 | Mia Rosiana Santoso | 2026-11-26 | docs(log): entri Sesi #8 (figur real vs generated) + tautan share
+7d5be17 | Mia Rosiana Santoso | 2026-11-26 | sesi 8: figur real_vs_generated.png (2x6, 6 kelas unik)
+c99c06e | Mia Rosiana Santoso | 2026-11-26 | sesi 8: src/figures.py — grid perbandingan data asli vs hasil sampling
+dbcab13 | Mia Rosiana Santoso | 2026-11-25 | docs(log): isi tautan share percakapan Sesi #7
+9127bb6 | Mia Rosiana Santoso | 2026-11-25 | docs(log): catat keputusan memakai hasil 2 epoch pada Sesi #7
+3689f1e | Mia Rosiana Santoso | 2026-11-25 | docs(log): kutip judul tabel konsol apa adanya dari run final Sesi #7
+e704e0a | Mia Rosiana Santoso | 2026-11-25 | feat(ablation): bandingkan noise schedule linear vs cosine tanpa mengubah diffusion.py
+ccdb917 | Mia Rosiana Santoso | 2026-11-25 | docs(log): tautan Sesi #6 diganti ke link share publik Gemini
+88e9d1c | Mia Rosiana Santoso | 2026-11-25 | docs(log): catat Sesi #6 (evaluate.py) beserta angka evaluasi asli
+1ae5b71 | Mia Rosiana Santoso | 2026-11-25 | feat(evaluate): kode sesi 6 dari Gemini, belum ada angka karena checkpoint belum tersedia
+89c4fe5 | pakihaaa01 | 2026-11-25 | docs: BRIEF-HERMES-MIA - bedakan error kode vs error environment
+0071085 | pakihaaa01 | 2026-11-25 | docs: BRIEF-HERMES-MIA.md - instruksi operasional untuk Hermes milik anggota kedua
+903396d | pakihaaa01 | 2026-11-25 | docs: README ditulis ulang dengan ragam akademis, tanpa emoji dan penekanan berlebih
+5fcee04 | pakihaaa01 | 2026-11-25 | docs: ekspor ulang riwayat commit (13 commit)
+18c2a09 | pakihaaa01 | 2026-11-25 | docs: BRIEF-MIA.md (panduan rekan sesi 6-8), lampiran kode + riwayat commit, update REPO_URL ke pakihaaa01/GenAI
+e659c0a | pakihaaa01 | 2026-11-24 | docs: rakit LAPORAN-PROYEK1.md final, hapus duplikasi blok hasil training di Bab 2
 9ea4b36 | pakihaaa01 | 2026-11-23 | hasil: training 25 epoch selesai (loss 0.16831 -> 0.04307), grid progres + kurva loss, koreksi param 793.953, share link log diperbaiki
 1b3e66d | pakihaaa01 | 2026-11-23 | docs: Log Interaksi 5 sesi (share link Gemini), notebook Colab, panduan ekspor deliverable
 2fa68d0 | pakihaaa01 | 2026-11-23 | sesi 4: train.py + sample.py — smoke test 1 epoch LULUS, sampling grid jalan
@@ -1581,3 +2185,772 @@ if __name__ == "__main__":
     train(cfg)
 ```
 
+### `src/evaluate.py`
+```python
+from pathlib import Path
+import sys
+
+# Bootstrap sys.path di level modul agar import absolut `from src...` selalu bekerja
+# saat dijalankan langsung sebagai `python src/evaluate.py`
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
+import numpy as np
+import torch
+import torch.nn.functional as F
+from matplotlib import pyplot as plt
+
+from src.config import Config
+from src.data import get_dataloader
+from src.diffusion import DDPM
+from src.model import DDPMUNet
+from src.sample import generate_with_fixed_noise
+
+
+def _resolve_path(path_str: str | Path) -> Path:
+    p = Path(path_str)
+    return p if p.is_absolute() else (PROJECT_ROOT / p)
+
+
+def _extract_real_images(cfg: Config, max_samples: int) -> torch.Tensor:
+    """Mengambil tensor gambar asli (test set) ternormalisasi ke [0, 1], shape (N, C, H, W)."""
+    # Pastikan num_workers=0 sesuai batasan Windows
+    cfg_eval = Config(**{**vars(cfg), "num_workers": 0})
+    loader = get_dataloader(cfg_eval, train=False)
+
+    chunks: list[torch.Tensor] = []
+    collected = 0
+    for batch in loader:
+        imgs = batch[0] if isinstance(batch, (tuple, list)) else batch
+        imgs = imgs.detach().cpu().float()
+        # Jika dataset berasal dari ToTensor(), nilai sudah [0, 1]; jika [-1, 1], petakan ke [0, 1]
+        if imgs.min() < 0.0:
+            imgs = (imgs + 1.0) * 0.5
+        imgs = imgs.clamp(0.0, 1.0)
+
+        remaining = max_samples - collected
+        if remaining <= 0:
+            break
+        if imgs.size(0) > remaining:
+            imgs = imgs[:remaining]
+        chunks.append(imgs)
+        collected += imgs.size(0)
+        if collected >= max_samples:
+            break
+
+    return torch.cat(chunks, dim=0)
+
+
+def compute_rbf_mmd(x: torch.Tensor, y: torch.Tensor, sigmas: tuple[float, ...] = (0.5, 1.0, 2.0, 5.0, 10.0)) -> float:
+    """Menghitung unbiased/biased RBF-MMD^2 antara dua himpunan tensor ber-shape (N, D)."""
+    x_flat = x.reshape(x.size(0), -1).float()
+    y_flat = y.reshape(y.size(0), -1).float()
+
+    xx = torch.cdist(x_flat, x_flat, p=2.0).pow(2)
+    yy = torch.cdist(y_flat, y_flat, p=2.0).pow(2)
+    xy = torch.cdist(x_flat, y_flat, p=2.0).pow(2)
+
+    mmd2 = 0.0
+    for s in sigmas:
+        bandwidth = 2.0 * (s ** 2)
+        k_xx = torch.exp(-xx / bandwidth).mean()
+        k_yy = torch.exp(-yy / bandwidth).mean()
+        k_xy = torch.exp(-xy / bandwidth).mean()
+        mmd2 += float((k_xx + k_yy - 2.0 * k_xy).item())
+
+    return max(0.0, mmd2 / len(sigmas))
+
+
+def _hist_wasserstein_1d(vals_a: np.ndarray, vals_b: np.ndarray, bins: int = 32) -> float:
+    """Jarak Wasserstein-1 (CDF L1) antara distribusi nilai skalar 1D pada rentang [0, 1]."""
+    hist_a, _ = np.histogram(vals_a, bins=bins, range=(0.0, 1.0), density=True)
+    hist_b, _ = np.histogram(vals_b, bins=bins, range=(0.0, 1.0), density=True)
+    bin_width = 1.0 / bins
+    cdf_a = np.cumsum(hist_a) * bin_width
+    cdf_b = np.cumsum(hist_b) * bin_width
+    return float(np.sum(np.abs(cdf_a - cdf_b)) * bin_width)
+
+
+def _sobel_gradient_magnitude(imgs: torch.Tensor) -> np.ndarray:
+    """Menghitung magnitudo gradien Sobel ternormalisasi [0, 1] untuk tensor (N, C, H, W)."""
+    c = imgs.size(1)
+    kx = torch.tensor([[-1.0, 0.0, 1.0], [-2.0, 0.0, 2.0], [-1.0, 0.0, 1.0]], dtype=torch.float32).view(1, 1, 3, 3)
+    ky = torch.tensor([[-1.0, -2.0, -1.0], [0.0, 0.0, 0.0], [1.0, 2.0, 1.0]], dtype=torch.float32).view(1, 1, 3, 3)
+    kx = kx.repeat(c, 1, 1, 1)
+    ky = ky.repeat(c, 1, 1, 1)
+
+    gx = F.conv2d(imgs.float(), kx, padding=1, groups=c)
+    gy = F.conv2d(imgs.float(), ky, padding=1, groups=c)
+    mag = torch.sqrt(gx.pow(2) + gy.pow(2) + 1e-8)
+    # Normalisasi per-dataset maksimum agar skala berada di [0, 1]
+    denom = float(mag.max().item()) if float(mag.max().item()) > 1e-8 else 1.0
+    return (mag / denom).clamp(0.0, 1.0).numpy().ravel()
+
+
+def load_checkpoint_and_models(ckpt_path: Path, device: torch.device) -> tuple[Config, DDPMUNet, DDPM, dict]:
+    """Memuat checkpoint, membangun Config, DDPMUNet, dan DDPM."""
+    ckpt = torch.load(ckpt_path, map_location=device)
+    raw_cfg = ckpt.get("config", {})
+    if isinstance(raw_cfg, Config):
+        cfg = raw_cfg
+    elif isinstance(raw_cfg, dict):
+        valid_fields = {k: v for k, v in raw_cfg.items() if hasattr(Config, k)}
+        cfg = Config(**valid_fields)
+    else:
+        cfg = Config()
+
+    cfg.num_workers = 0
+
+    model = DDPMUNet(
+        in_channels=cfg.channels,
+        base_ch=cfg.unet_base,
+        time_emb_dim=cfg.time_embed_dim,
+    ).to(device)
+    model.load_state_dict(ckpt["model_state_dict"])
+    model.eval()
+
+    diffusion = DDPM(
+        timesteps=cfg.timesteps,
+        beta_start=cfg.beta_start,
+        beta_end=cfg.beta_end,
+        clip_denoised=True,
+    ).to(device)
+
+    return cfg, model, diffusion, ckpt
+
+
+def save_evaluation_figure(
+    fig_dir: Path,
+    real_imgs: torch.Tensor,
+    gen_imgs: torch.Tensor,
+    metrics: dict[str, float],
+) -> Path:
+    """Menyimpan ringkasan visual (grid sampel generated + perbandingan histogram piksel & gradien)."""
+    fig_dir.mkdir(parents=True, exist_ok=True)
+    out_path = fig_dir / "evaluation_metrics.png"
+
+    fig, axes = plt.subplots(1, 3, figsize=(14, 4.2))
+
+    # Panel 1: Grid 4x4 hasil sampling
+    grid_n = min(16, gen_imgs.size(0))
+    side = int(np.sqrt(grid_n))
+    grid_n = side * side
+    canvas = np.zeros((side * gen_imgs.size(2), side * gen_imgs.size(3)), dtype=np.float32)
+    for idx in range(grid_n):
+        r, c = divmod(idx, side)
+        patch = gen_imgs[idx, 0].numpy()
+        h, w = patch.shape
+        canvas[r * h : (r + 1) * h, c * w : (c + 1) * w] = patch
+
+    axes[0].imshow(canvas, cmap="gray", vmin=0.0, vmax=1.0)
+    axes[0].set_title(f"Generated Samples ({side}x{side})")
+    axes[0].axis("off")
+
+    # Panel 2: Histogram intensitas piksel (Real vs Generated)
+    real_px = real_imgs.numpy().ravel()
+    gen_px = gen_imgs.numpy().ravel()
+    axes[1].hist(real_px, bins=32, range=(0, 1), density=True, alpha=0.6, label="Real (Test)")
+    axes[1].hist(gen_px, bins=32, range=(0, 1), density=True, alpha=0.6, label="Generated")
+    axes[1].set_title(f"Pixel Intensity (W1={metrics['pixel_w1']:.4f})")
+    axes[1].set_xlabel("Intensity [0, 1]")
+    axes[1].set_ylabel("Density")
+    axes[1].legend()
+
+    # Panel 3: Histogram gradien Sobel (Real vs Generated)
+    real_grad = _sobel_gradient_magnitude(real_imgs)
+    gen_grad = _sobel_gradient_magnitude(gen_imgs)
+    axes[2].hist(real_grad, bins=32, range=(0, 1), density=True, alpha=0.6, label="Real (Test)")
+    axes[2].hist(gen_grad, bins=32, range=(0, 1), density=True, alpha=0.6, label="Generated")
+    axes[2].set_title(f"Sobel Edge Mag (W1={metrics['grad_w1']:.4f})")
+    axes[2].set_xlabel("Normalized Gradient")
+    axes[2].legend()
+
+    fig.suptitle(
+        f"Mini DDPM Eval | RBF-MMD (Real vs Gen): {metrics['mmd_real_gen']:.4f} "
+        f"(Real Split Ref: {metrics['mmd_real_split']:.4f})",
+        fontsize=10,
+    )
+    fig.tight_layout()
+    fig.savefig(out_path, dpi=150)
+    plt.close(fig)
+    return out_path
+
+
+def evaluate(
+    ckpt_rel_path: str = "checkpoints/ddpm_best.pt",
+    num_eval_samples: int = 256,
+    seed: int = 1234,
+) -> dict[str, float]:
+    device = torch.device("cpu")
+    ckpt_path = _resolve_path(ckpt_rel_path)
+    cfg, model, diffusion, ckpt = load_checkpoint_and_models(ckpt_path, device)
+
+    # Ambil 2x sampel test untuk membandingkan Real-vs-Generated dan baseline Real-vs-Real
+    real_all = _extract_real_images(cfg, max_samples=num_eval_samples * 2)
+    half = real_all.size(0) // 2
+    real_a = real_all[:half]
+    real_b = real_all[half : half * 2]
+
+    gen_imgs = generate_with_fixed_noise(
+        model=model,
+        diffusion=diffusion,
+        num_samples=half,
+        img_size=cfg.image_size,
+        channels=cfg.channels,
+        device=device,
+        fixed_seed=seed,
+    ).detach().cpu().float().clamp(0.0, 1.0)
+
+    mmd_real_gen = compute_rbf_mmd(real_a, gen_imgs)
+    mmd_real_split = compute_rbf_mmd(real_a, real_b)
+
+    pixel_w1 = _hist_wasserstein_1d(real_a.numpy().ravel(), gen_imgs.numpy().ravel(), bins=32)
+    pixel_w1_ref = _hist_wasserstein_1d(real_a.numpy().ravel(), real_b.numpy().ravel(), bins=32)
+
+    grad_w1 = _hist_wasserstein_1d(_sobel_gradient_magnitude(real_a), _sobel_gradient_magnitude(gen_imgs), bins=32)
+    grad_w1_ref = _hist_wasserstein_1d(_sobel_gradient_magnitude(real_a), _sobel_gradient_magnitude(real_b), bins=32)
+
+    metrics = {
+        "mmd_real_gen": mmd_real_gen,
+        "mmd_real_split": mmd_real_split,
+        "pixel_w1": pixel_w1,
+        "pixel_w1_ref": pixel_w1_ref,
+        "grad_w1": grad_w1,
+        "grad_w1_ref": grad_w1_ref,
+    }
+
+    fig_dir = _resolve_path(cfg.fig_dir)
+    saved_fig = save_evaluation_figure(fig_dir, real_a, gen_imgs, metrics)
+
+    ckpt_epoch = ckpt.get("epoch", "N/A")
+    ckpt_loss = ckpt.get("loss", "N/A")
+
+    print("=== Mini DDPM Evaluation Summary (CPU) ===")
+    print(f"Checkpoint      : {ckpt_path} (epoch={ckpt_epoch}, loss={ckpt_loss})")
+    print(f"Eval Samples    : {half} per set (image_size={cfg.image_size}, channels={cfg.channels})")
+    print(f"RBF-MMD (Real vs Gen)   : {mmd_real_gen:.6f}  [Real Split Ref: {mmd_real_split:.6f}]")
+    print(f"Pixel W1 (Real vs Gen)  : {pixel_w1:.6f}  [Real Split Ref: {pixel_w1_ref:.6f}]")
+    print(f"Sobel Grad W1 (R vs G)  : {grad_w1:.6f}  [Real Split Ref: {grad_w1_ref:.6f}]")
+    print(f"Saved figure    : {saved_fig}")
+
+    return metrics
+
+
+if __name__ == "__main__":
+    evaluate()
+```
+
+### `src/ablation.py`
+```python
+import copy
+import json
+import math
+import sys
+import time
+from pathlib import Path
+from typing import Any, Dict, List
+
+# Bootstrap sys.path di level modul agar aman dijalankan via `python src/ablation.py`
+ROOT_DIR = Path(__file__).resolve().parents[1]
+if str(ROOT_DIR) not in sys.path:
+    sys.path.insert(0, str(ROOT_DIR))
+
+import matplotlib
+
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
+import torch
+import torch.nn.functional as F
+
+from src.config import Config
+from src.data import get_dataloader
+from src.diffusion import DDPM
+from src.model import DDPMUNet
+from src.train import set_seed
+
+# Dibatasi 2 epoch: satu epoch terukur 915 dtk di CPU, 3 epoch x 2 varian > 1 jam.
+ABLATION_EPOCHS = 2
+
+class CosineDDPM(DDPM):
+    """Subclass DDPM dengan cosine noise schedule (Nichol & Dhariwal, 2021)."""
+
+    def __init__(
+        self,
+        timesteps: int = 1000,
+        s: float = 0.008,
+        clip_denoised: bool = True,
+    ) -> None:
+        super().__init__(
+            timesteps=timesteps,
+            beta_start=1e-4,
+            beta_end=0.02,
+            clip_denoised=clip_denoised,
+        )
+
+        # Hitung alpha_bar_t dalam float64 untuk presisi numerik di dekat t = 0
+        steps = timesteps + 1
+        t = torch.linspace(0, timesteps, steps, dtype=torch.float64)
+        f_t = torch.cos(((t / timesteps) + s) / (1.0 + s) * (math.pi / 2.0)) ** 2
+        alphas_cumprod_raw = f_t / f_t[0]
+
+        betas = 1.0 - (alphas_cumprod_raw[1:] / alphas_cumprod_raw[:-1])
+        betas = torch.clamp(betas, min=1e-4, max=0.999).to(torch.float32)
+
+        # Turunkan seluruh buffer dari betas pasca-clamp agar 100% konsisten
+        alphas = 1.0 - betas
+        alphas_cumprod = torch.cumprod(alphas, dim=0)
+        alphas_cumprod_prev = F.pad(alphas_cumprod[:-1], (1, 0), value=1.0)
+
+        sqrt_alphas_cumprod = torch.sqrt(alphas_cumprod)
+        sqrt_one_minus_alphas_cumprod = torch.sqrt(1.0 - alphas_cumprod)
+        sqrt_recip_alphas_cumprod = torch.sqrt(1.0 / alphas_cumprod)
+        sqrt_recipm1_alphas_cumprod = torch.sqrt(1.0 / alphas_cumprod - 1.0)
+
+        posterior_variance = (
+            betas * (1.0 - alphas_cumprod_prev) / (1.0 - alphas_cumprod)
+        )
+        posterior_log_variance_clipped = torch.log(
+            torch.clamp(posterior_variance, min=1e-20)
+        )
+        posterior_mean_coef1 = (
+            betas * torch.sqrt(alphas_cumprod_prev) / (1.0 - alphas_cumprod)
+        )
+        posterior_mean_coef2 = (
+            (1.0 - alphas_cumprod_prev) * torch.sqrt(alphas) / (1.0 - alphas_cumprod)
+        )
+
+        updated_buffers = {
+            "betas": betas,
+            "alphas": alphas,
+            "alphas_cumprod": alphas_cumprod,
+            "alphas_cumprod_prev": alphas_cumprod_prev,
+            "sqrt_alphas_cumprod": sqrt_alphas_cumprod,
+            "sqrt_one_minus_alphas_cumprod": sqrt_one_minus_alphas_cumprod,
+            "sqrt_recip_alphas_cumprod": sqrt_recip_alphas_cumprod,
+            "sqrt_recipm1_alphas_cumprod": sqrt_recipm1_alphas_cumprod,
+            "posterior_variance": posterior_variance,
+            "posterior_log_variance_clipped": posterior_log_variance_clipped,
+            "posterior_mean_coef1": posterior_mean_coef1,
+            "posterior_mean_coef2": posterior_mean_coef2,
+        }
+
+        existing_buffers = dict(self.named_buffers())
+        for buf_name, buf_tensor in updated_buffers.items():
+            if buf_name not in existing_buffers:
+                raise KeyError(f"Buffer '{buf_name}' tidak ditemukan pada induk DDPM.")
+            self.register_buffer(buf_name, buf_tensor)
+
+def run_variant(name: str, cfg: Config, use_cosine: bool) -> Dict[str, Any]:
+    """Jalankan training 3 epoch dengan seed & urutan batch identik per varian."""
+    variant_cfg = copy.deepcopy(cfg)
+    variant_cfg.epochs = ABLATION_EPOCHS
+    variant_cfg.num_workers = 0
+    variant_cfg.beta_schedule = "cosine" if use_cosine else "linear"
+
+    # Isolasi direktori keluaran agar checkpoints/ddpm_best.pt & logs/train_history.json aman
+    variant_ckpt_dir = Path(cfg.ckpt_dir) / "ablation" / name
+    variant_log_dir = Path(cfg.log_dir) / "ablation"
+    variant_ckpt_dir.mkdir(parents=True, exist_ok=True)
+    variant_log_dir.mkdir(parents=True, exist_ok=True)
+
+    variant_cfg.ckpt_dir = str(variant_ckpt_dir)
+    variant_cfg.log_dir = str(variant_log_dir)
+
+    # Reset seed sebelum inisialisasi dataloader, model, dan sampling noise
+    set_seed(variant_cfg.seed)
+    device = torch.device("cpu")
+
+    train_loader = get_dataloader(variant_cfg, train=True)
+
+    model = DDPMUNet(
+        in_channels=variant_cfg.channels,
+        base_ch=variant_cfg.unet_base,
+        time_emb_dim=variant_cfg.time_embed_dim,
+    ).to(device)
+
+    if use_cosine:
+        diffusion: DDPM = CosineDDPM(timesteps=variant_cfg.timesteps).to(device)
+    else:
+        diffusion = DDPM(
+            timesteps=variant_cfg.timesteps,
+            beta_start=variant_cfg.beta_start,
+            beta_end=variant_cfg.beta_end,
+        ).to(device)
+
+    num_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+    optimizer = torch.optim.Adam(model.parameters(), lr=variant_cfg.lr)
+
+    epoch_losses: List[float] = []
+    epoch_times: List[float] = []
+    best_loss = float("inf")
+
+    print(f"\n[Ablation] Menjalankan varian '{name}' ({variant_cfg.beta_schedule})...")
+
+    for epoch in range(1, variant_cfg.epochs + 1):
+        model.train()
+        t_start = time.perf_counter()
+        running_loss = 0.0
+        total_samples = 0
+
+        for batch in train_loader:
+            x0 = batch[0] if isinstance(batch, (list, tuple)) else batch
+            x0 = x0.to(device)
+            batch_size = x0.shape[0]
+
+            t = torch.randint(
+                0, variant_cfg.timesteps, (batch_size,), device=device
+            ).long()
+
+            optimizer.zero_grad(set_to_none=True)
+            loss = diffusion.p_losses(model, x0, t)
+            loss.backward()
+            optimizer.step()
+
+            running_loss += loss.item() * batch_size
+            total_samples += batch_size
+
+        elapsed = time.perf_counter() - t_start
+        avg_loss = running_loss / max(total_samples, 1)
+
+        epoch_losses.append(avg_loss)
+        epoch_times.append(elapsed)
+
+        ckpt_payload = {
+            "epoch": epoch,
+            "variant": name,
+            "beta_schedule": variant_cfg.beta_schedule,
+            "model_state_dict": model.state_dict(),
+            "optimizer_state_dict": optimizer.state_dict(),
+            "loss": avg_loss,
+        }
+        torch.save(ckpt_payload, variant_ckpt_dir / f"ddpm_epoch_{epoch:03d}.pt")
+
+        if avg_loss < best_loss:
+            best_loss = avg_loss
+            torch.save(ckpt_payload, variant_ckpt_dir / "ddpm_best.pt")
+
+        print(
+            f"  Epoch {epoch}/{variant_cfg.epochs} | "
+            f"Loss: {avg_loss:.5f} | Waktu: {elapsed:.2f} dtk"
+        )
+
+    log_path = variant_log_dir / f"{name}_history.json"
+    history_payload = {
+        "variant": name,
+        "beta_schedule": variant_cfg.beta_schedule,
+        "seed": variant_cfg.seed,
+        "timesteps": variant_cfg.timesteps,
+        "unet_base": variant_cfg.unet_base,
+        "num_params": num_params,
+        "epoch_losses": epoch_losses,
+        "epoch_times_sec": epoch_times,
+        "total_time_sec": sum(epoch_times),
+    }
+    with open(log_path, "w", encoding="utf-8") as f:
+        json.dump(history_payload, f, indent=2)
+
+    return history_payload
+
+def plot_ablation(results: List[Dict[str, Any]], save_path: Path) -> None:
+    """Plot kurva training loss kedua varian dalam satu gambar PNG."""
+    save_path = Path(save_path)
+    save_path.parent.mkdir(parents=True, exist_ok=True)
+
+    fig, ax = plt.subplots(figsize=(8.5, 5.0), dpi=150)
+
+    styles = {
+        "linear": {"color": "#1f77b4", "marker": "o", "linestyle": "-"},
+        "cosine": {"color": "#d95f02", "marker": "s", "linestyle": "--"},
+    }
+
+    for res in results:
+        name = res["variant"]
+        losses = res["epoch_losses"]
+        epochs = list(range(1, len(losses) + 1))
+        st = styles.get(name, {"color": "#2ca02c", "marker": "^", "linestyle": "-."})
+
+        label = f"{name.capitalize()} Schedule (T={res['timesteps']})"
+        ax.plot(
+            epochs,
+            losses,
+            label=label,
+            color=st["color"],
+            marker=st["marker"],
+            linestyle=st["linestyle"],
+            linewidth=2.2,
+            markersize=7,
+        )
+
+        # Anotasi nilai loss eksak pada setiap titik epoch
+        offset_y = 8 if name == "linear" else -14
+        for ep, val in zip(epochs, losses):
+            ax.annotate(
+                f"{val:.5f}",
+                (ep, val),
+                textcoords="offset points",
+                xytext=(0, offset_y),
+                ha="center",
+                fontsize=8.5,
+                color=st["color"],
+                fontweight="bold",
+            )
+
+    ax.set_title(
+        "Ablation Study: Linear vs Cosine Noise Schedule "
+        f"({max(len(r['epoch_losses']) for r in results)} Epoch, Fashion-MNIST)",
+        fontsize=11.5,
+        fontweight="bold",
+        pad=12,
+    )
+    ax.set_xlabel("Epoch", fontsize=10.5)
+    ax.set_ylabel("Mean Squared Error (MSE) Loss", fontsize=10.5)
+    ax.set_xticks(range(1, max(len(r["epoch_losses"]) for r in results) + 1))
+    ax.grid(True, linestyle=":", alpha=0.6)
+    ax.legend(frameon=True, fontsize=9.5)
+
+    fig.tight_layout()
+    fig.savefig(save_path, bbox_inches="tight")
+    plt.close(fig)
+    print(f"\n[Ablation] Grafik perbandingan disimpan ke: {save_path}")
+
+def _print_comparison_table(results: List[Dict[str, Any]]) -> None:
+    """Cetak tabel ringkasan perbandingan ke konsol."""
+    n_epochs = max(len(r["epoch_losses"]) for r in results)
+    ep_cols = " | ".join(f"{'Epoch ' + str(i):>9}" for i in range(1, n_epochs + 1))
+    header = (
+        f"{'Varian':<10} | {'Params':>9} | {ep_cols} | "
+        f"{'Avg Time/Ep':>11} | {'Total Time':>10}"
+    )
+    sep = "-" * len(header)
+    print("\n" + sep)
+    print(f"HASIL ABLATION STUDY NOISE SCHEDULE ({n_epochs} EPOCH)")
+    print(sep)
+    print(header)
+    print(sep)
+
+    for res in results:
+        losses = res["epoch_losses"]
+        times = res["epoch_times_sec"]
+        avg_time = sum(times) / len(times)
+        loss_cells = " | ".join(f"{v:>9.5f}" for v in losses)
+        print(
+            f"{res['variant']:<10} | "
+            f"{res['num_params']:>9,d} | "
+            f"{loss_cells} | "
+            f"{avg_time:>9.2f} s | "
+            f"{res['total_time_sec']:>8.2f} s"
+        )
+    print(sep)
+
+def main() -> None:
+    cfg = Config()
+    cfg.epochs = ABLATION_EPOCHS
+    cfg.num_workers = 0
+
+    linear_res = run_variant(name="linear", cfg=cfg, use_cosine=False)
+    cosine_res = run_variant(name="cosine", cfg=cfg, use_cosine=True)
+
+    results = [linear_res, cosine_res]
+    _print_comparison_table(results)
+
+    fig_path = Path(cfg.fig_dir) / "ablation_noise_schedule.png"
+    plot_ablation(results, save_path=fig_path)
+
+if __name__ == "__main__":
+    main()
+```
+
+### `src/figures.py`
+```python
+import sys
+from pathlib import Path
+
+# Bootstrap sys.path di level modul agar `python src/figures.py` mendukung import absolut `src.*`
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
+import time
+import matplotlib
+
+matplotlib.use("Agg")  # Backend non-interaktif agar aman di CPU/Windows tanpa GUI
+import matplotlib.pyplot as plt
+import torch
+
+from src.config import Config
+from src.data import get_dataset
+from src.evaluate import load_checkpoint_and_models
+from src.sample import generate_with_fixed_noise
+
+FASHION_MNIST_CLASSES: list[str] = [
+    "T-shirt/top",
+    "Trouser",
+    "Pullover",
+    "Dress",
+    "Coat",
+    "Sandal",
+    "Shirt",
+    "Sneaker",
+    "Bag",
+    "Ankle boot",
+]
+
+
+def _select_stratified_real_samples(
+    cfg: Config, n_samples: int = 6, seed: int = 42
+) -> tuple[torch.Tensor, list[int]]:
+    """Ambil sampel data asli terstratifikasi per kelas secara deterministik."""
+    test_dataset = get_dataset(cfg, train=False)
+    generator = torch.Generator().manual_seed(seed)
+    shuffled_indices = torch.randperm(len(test_dataset), generator=generator).tolist()
+
+    selected_by_class: dict[int, torch.Tensor] = {}
+
+    for idx in shuffled_indices:
+        img, label = test_dataset[idx]
+        label_int = int(label)
+        if label_int in selected_by_class:
+            continue
+        # Denormalisasi dari [-1, 1] ke [0, 1] sesuai transform Normalize(0.5, 0.5)
+        selected_by_class[label_int] = (img * 0.5 + 0.5).clamp(0.0, 1.0)
+        if len(selected_by_class) >= n_samples:
+            break
+
+    ordered_pairs = sorted(selected_by_class.items(), key=lambda item: item[0])
+
+    real_labels = [lbl for lbl, _ in ordered_pairs[:n_samples]]
+    real_images = torch.stack([img for _, img in ordered_pairs[:n_samples]], dim=0)
+    return real_images, real_labels
+
+
+def build_comparison_grid(
+    real: torch.Tensor,
+    fake: torch.Tensor,
+    real_labels: list[int] | torch.Tensor,
+    class_names: list[str],
+    save_path: Path | str,
+    n_cols: int = 6,
+) -> Path:
+    """Bangun figur PNG 2 baris x n_cols kolom (baris asli berlabel, baris sampling tanpa label)."""
+    if n_cols < 1 or n_cols > 12:
+        raise ValueError(f"n_cols harus berada di rentang 1..12, diterima: {n_cols}")
+    if real.shape[0] < n_cols or fake.shape[0] < n_cols:
+        raise ValueError(
+            f"Jumlah sampel tidak cukup untuk n_cols={n_cols}: "
+            f"real={real.shape[0]}, fake={fake.shape[0]}"
+        )
+
+    save_path = Path(save_path)
+    save_path.parent.mkdir(parents=True, exist_ok=True)
+
+    real_np = real[:n_cols].detach().cpu().clamp(0.0, 1.0).numpy()
+    fake_np = fake[:n_cols].detach().cpu().clamp(0.0, 1.0).numpy()
+    labels_list = [int(lbl) for lbl in real_labels[:n_cols]]
+
+    fig, axes = plt.subplots(
+        nrows=2,
+        ncols=n_cols,
+        figsize=(n_cols * 2.0, 4.9),
+        gridspec_kw={"hspace": 0.48, "wspace": 0.08},
+    )
+    if n_cols == 1:
+        axes = axes.reshape(2, 1)
+
+    for col in range(n_cols):
+        # Baris atas: data asli beserta label kelas
+        ax_real = axes[0, col]
+        ax_real.imshow(real_np[col, 0], cmap="gray", vmin=0.0, vmax=1.0)
+        ax_real.set_xticks([])
+        ax_real.set_yticks([])
+        ax_real.set_xlabel(class_names[labels_list[col]], fontsize=9, labelpad=4)
+        for spine in ax_real.spines.values():
+            spine.set_edgecolor("#CCCCCC")
+            spine.set_linewidth(0.7)
+
+        # Baris bawah: hasil sampling tanpa label kelas
+        ax_fake = axes[1, col]
+        ax_fake.imshow(fake_np[col, 0], cmap="gray", vmin=0.0, vmax=1.0)
+        ax_fake.set_xticks([])
+        ax_fake.set_yticks([])
+        for spine in ax_fake.spines.values():
+            spine.set_edgecolor("#CCCCCC")
+            spine.set_linewidth(0.7)
+
+    # Hitung posisi aktual tiap baris agar judul baris rata kiri presisi dan tidak terpotong
+    fig.canvas.draw()
+    left_x = axes[0, 0].get_position().x0
+    top_row_y = axes[0, 0].get_position().y1 + 0.025
+    bottom_row_y = axes[1, 0].get_position().y1 + 0.025
+
+    fig.text(
+        left_x,
+        top_row_y,
+        "Data asli (test set)",
+        fontsize=11,
+        fontweight="bold",
+        ha="left",
+        va="bottom",
+    )
+    fig.text(
+        left_x,
+        bottom_row_y,
+        "Hasil sampling (T=1000, seed 1234)",
+        fontsize=11,
+        fontweight="bold",
+        ha="left",
+        va="bottom",
+    )
+
+    fig.savefig(save_path, dpi=200, bbox_inches="tight", pad_inches=0.15)
+    plt.close(fig)
+    return save_path
+
+
+def main() -> None:
+    start_time = time.perf_counter()
+
+    device = torch.device("cpu")
+    n_cols = 6
+    sampling_seed = 1234
+
+    default_cfg = Config()
+    ckpt_path = Path(default_cfg.ckpt_dir) / "ddpm_best.pt"
+    cfg, model, diffusion, _ = load_checkpoint_and_models(ckpt_path, device)
+
+    real_images, real_labels = _select_stratified_real_samples(
+        cfg=cfg,
+        n_samples=n_cols,
+        seed=cfg.seed,
+    )
+
+    fake_images = generate_with_fixed_noise(
+        model=model,
+        diffusion=diffusion,
+        num_samples=n_cols,
+        img_size=cfg.image_size,
+        channels=cfg.channels,
+        device=device,
+        fixed_seed=sampling_seed,
+    )
+
+    output_path = Path(cfg.fig_dir) / "real_vs_generated.png"
+    saved_path = build_comparison_grid(
+        real=real_images,
+        fake=fake_images,
+        real_labels=real_labels,
+        class_names=FASHION_MNIST_CLASSES,
+        save_path=output_path,
+        n_cols=n_cols,
+    )
+
+    elapsed = time.perf_counter() - start_time
+    print(f"Figur disimpan   : {saved_path.as_posix()}")
+    print(f"Shape tensor real: {tuple(real_images.shape)}")
+    print(f"Shape tensor fake: {tuple(fake_images.shape)}")
+    print(f"Waktu eksekusi   : {elapsed:.2f} detik ({elapsed / 60.0:.2f} menit)")
+
+
+if __name__ == "__main__":
+    main()
+```

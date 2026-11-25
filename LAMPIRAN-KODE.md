@@ -1014,3 +1014,772 @@ if __name__ == "__main__":
     train(cfg)
 ```
 
+### `src/evaluate.py`
+```python
+from pathlib import Path
+import sys
+
+# Bootstrap sys.path di level modul agar import absolut `from src...` selalu bekerja
+# saat dijalankan langsung sebagai `python src/evaluate.py`
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
+import numpy as np
+import torch
+import torch.nn.functional as F
+from matplotlib import pyplot as plt
+
+from src.config import Config
+from src.data import get_dataloader
+from src.diffusion import DDPM
+from src.model import DDPMUNet
+from src.sample import generate_with_fixed_noise
+
+
+def _resolve_path(path_str: str | Path) -> Path:
+    p = Path(path_str)
+    return p if p.is_absolute() else (PROJECT_ROOT / p)
+
+
+def _extract_real_images(cfg: Config, max_samples: int) -> torch.Tensor:
+    """Mengambil tensor gambar asli (test set) ternormalisasi ke [0, 1], shape (N, C, H, W)."""
+    # Pastikan num_workers=0 sesuai batasan Windows
+    cfg_eval = Config(**{**vars(cfg), "num_workers": 0})
+    loader = get_dataloader(cfg_eval, train=False)
+
+    chunks: list[torch.Tensor] = []
+    collected = 0
+    for batch in loader:
+        imgs = batch[0] if isinstance(batch, (tuple, list)) else batch
+        imgs = imgs.detach().cpu().float()
+        # Jika dataset berasal dari ToTensor(), nilai sudah [0, 1]; jika [-1, 1], petakan ke [0, 1]
+        if imgs.min() < 0.0:
+            imgs = (imgs + 1.0) * 0.5
+        imgs = imgs.clamp(0.0, 1.0)
+
+        remaining = max_samples - collected
+        if remaining <= 0:
+            break
+        if imgs.size(0) > remaining:
+            imgs = imgs[:remaining]
+        chunks.append(imgs)
+        collected += imgs.size(0)
+        if collected >= max_samples:
+            break
+
+    return torch.cat(chunks, dim=0)
+
+
+def compute_rbf_mmd(x: torch.Tensor, y: torch.Tensor, sigmas: tuple[float, ...] = (0.5, 1.0, 2.0, 5.0, 10.0)) -> float:
+    """Menghitung unbiased/biased RBF-MMD^2 antara dua himpunan tensor ber-shape (N, D)."""
+    x_flat = x.reshape(x.size(0), -1).float()
+    y_flat = y.reshape(y.size(0), -1).float()
+
+    xx = torch.cdist(x_flat, x_flat, p=2.0).pow(2)
+    yy = torch.cdist(y_flat, y_flat, p=2.0).pow(2)
+    xy = torch.cdist(x_flat, y_flat, p=2.0).pow(2)
+
+    mmd2 = 0.0
+    for s in sigmas:
+        bandwidth = 2.0 * (s ** 2)
+        k_xx = torch.exp(-xx / bandwidth).mean()
+        k_yy = torch.exp(-yy / bandwidth).mean()
+        k_xy = torch.exp(-xy / bandwidth).mean()
+        mmd2 += float((k_xx + k_yy - 2.0 * k_xy).item())
+
+    return max(0.0, mmd2 / len(sigmas))
+
+
+def _hist_wasserstein_1d(vals_a: np.ndarray, vals_b: np.ndarray, bins: int = 32) -> float:
+    """Jarak Wasserstein-1 (CDF L1) antara distribusi nilai skalar 1D pada rentang [0, 1]."""
+    hist_a, _ = np.histogram(vals_a, bins=bins, range=(0.0, 1.0), density=True)
+    hist_b, _ = np.histogram(vals_b, bins=bins, range=(0.0, 1.0), density=True)
+    bin_width = 1.0 / bins
+    cdf_a = np.cumsum(hist_a) * bin_width
+    cdf_b = np.cumsum(hist_b) * bin_width
+    return float(np.sum(np.abs(cdf_a - cdf_b)) * bin_width)
+
+
+def _sobel_gradient_magnitude(imgs: torch.Tensor) -> np.ndarray:
+    """Menghitung magnitudo gradien Sobel ternormalisasi [0, 1] untuk tensor (N, C, H, W)."""
+    c = imgs.size(1)
+    kx = torch.tensor([[-1.0, 0.0, 1.0], [-2.0, 0.0, 2.0], [-1.0, 0.0, 1.0]], dtype=torch.float32).view(1, 1, 3, 3)
+    ky = torch.tensor([[-1.0, -2.0, -1.0], [0.0, 0.0, 0.0], [1.0, 2.0, 1.0]], dtype=torch.float32).view(1, 1, 3, 3)
+    kx = kx.repeat(c, 1, 1, 1)
+    ky = ky.repeat(c, 1, 1, 1)
+
+    gx = F.conv2d(imgs.float(), kx, padding=1, groups=c)
+    gy = F.conv2d(imgs.float(), ky, padding=1, groups=c)
+    mag = torch.sqrt(gx.pow(2) + gy.pow(2) + 1e-8)
+    # Normalisasi per-dataset maksimum agar skala berada di [0, 1]
+    denom = float(mag.max().item()) if float(mag.max().item()) > 1e-8 else 1.0
+    return (mag / denom).clamp(0.0, 1.0).numpy().ravel()
+
+
+def load_checkpoint_and_models(ckpt_path: Path, device: torch.device) -> tuple[Config, DDPMUNet, DDPM, dict]:
+    """Memuat checkpoint, membangun Config, DDPMUNet, dan DDPM."""
+    ckpt = torch.load(ckpt_path, map_location=device)
+    raw_cfg = ckpt.get("config", {})
+    if isinstance(raw_cfg, Config):
+        cfg = raw_cfg
+    elif isinstance(raw_cfg, dict):
+        valid_fields = {k: v for k, v in raw_cfg.items() if hasattr(Config, k)}
+        cfg = Config(**valid_fields)
+    else:
+        cfg = Config()
+
+    cfg.num_workers = 0
+
+    model = DDPMUNet(
+        in_channels=cfg.channels,
+        base_ch=cfg.unet_base,
+        time_emb_dim=cfg.time_embed_dim,
+    ).to(device)
+    model.load_state_dict(ckpt["model_state_dict"])
+    model.eval()
+
+    diffusion = DDPM(
+        timesteps=cfg.timesteps,
+        beta_start=cfg.beta_start,
+        beta_end=cfg.beta_end,
+        clip_denoised=True,
+    ).to(device)
+
+    return cfg, model, diffusion, ckpt
+
+
+def save_evaluation_figure(
+    fig_dir: Path,
+    real_imgs: torch.Tensor,
+    gen_imgs: torch.Tensor,
+    metrics: dict[str, float],
+) -> Path:
+    """Menyimpan ringkasan visual (grid sampel generated + perbandingan histogram piksel & gradien)."""
+    fig_dir.mkdir(parents=True, exist_ok=True)
+    out_path = fig_dir / "evaluation_metrics.png"
+
+    fig, axes = plt.subplots(1, 3, figsize=(14, 4.2))
+
+    # Panel 1: Grid 4x4 hasil sampling
+    grid_n = min(16, gen_imgs.size(0))
+    side = int(np.sqrt(grid_n))
+    grid_n = side * side
+    canvas = np.zeros((side * gen_imgs.size(2), side * gen_imgs.size(3)), dtype=np.float32)
+    for idx in range(grid_n):
+        r, c = divmod(idx, side)
+        patch = gen_imgs[idx, 0].numpy()
+        h, w = patch.shape
+        canvas[r * h : (r + 1) * h, c * w : (c + 1) * w] = patch
+
+    axes[0].imshow(canvas, cmap="gray", vmin=0.0, vmax=1.0)
+    axes[0].set_title(f"Generated Samples ({side}x{side})")
+    axes[0].axis("off")
+
+    # Panel 2: Histogram intensitas piksel (Real vs Generated)
+    real_px = real_imgs.numpy().ravel()
+    gen_px = gen_imgs.numpy().ravel()
+    axes[1].hist(real_px, bins=32, range=(0, 1), density=True, alpha=0.6, label="Real (Test)")
+    axes[1].hist(gen_px, bins=32, range=(0, 1), density=True, alpha=0.6, label="Generated")
+    axes[1].set_title(f"Pixel Intensity (W1={metrics['pixel_w1']:.4f})")
+    axes[1].set_xlabel("Intensity [0, 1]")
+    axes[1].set_ylabel("Density")
+    axes[1].legend()
+
+    # Panel 3: Histogram gradien Sobel (Real vs Generated)
+    real_grad = _sobel_gradient_magnitude(real_imgs)
+    gen_grad = _sobel_gradient_magnitude(gen_imgs)
+    axes[2].hist(real_grad, bins=32, range=(0, 1), density=True, alpha=0.6, label="Real (Test)")
+    axes[2].hist(gen_grad, bins=32, range=(0, 1), density=True, alpha=0.6, label="Generated")
+    axes[2].set_title(f"Sobel Edge Mag (W1={metrics['grad_w1']:.4f})")
+    axes[2].set_xlabel("Normalized Gradient")
+    axes[2].legend()
+
+    fig.suptitle(
+        f"Mini DDPM Eval | RBF-MMD (Real vs Gen): {metrics['mmd_real_gen']:.4f} "
+        f"(Real Split Ref: {metrics['mmd_real_split']:.4f})",
+        fontsize=10,
+    )
+    fig.tight_layout()
+    fig.savefig(out_path, dpi=150)
+    plt.close(fig)
+    return out_path
+
+
+def evaluate(
+    ckpt_rel_path: str = "checkpoints/ddpm_best.pt",
+    num_eval_samples: int = 256,
+    seed: int = 1234,
+) -> dict[str, float]:
+    device = torch.device("cpu")
+    ckpt_path = _resolve_path(ckpt_rel_path)
+    cfg, model, diffusion, ckpt = load_checkpoint_and_models(ckpt_path, device)
+
+    # Ambil 2x sampel test untuk membandingkan Real-vs-Generated dan baseline Real-vs-Real
+    real_all = _extract_real_images(cfg, max_samples=num_eval_samples * 2)
+    half = real_all.size(0) // 2
+    real_a = real_all[:half]
+    real_b = real_all[half : half * 2]
+
+    gen_imgs = generate_with_fixed_noise(
+        model=model,
+        diffusion=diffusion,
+        num_samples=half,
+        img_size=cfg.image_size,
+        channels=cfg.channels,
+        device=device,
+        fixed_seed=seed,
+    ).detach().cpu().float().clamp(0.0, 1.0)
+
+    mmd_real_gen = compute_rbf_mmd(real_a, gen_imgs)
+    mmd_real_split = compute_rbf_mmd(real_a, real_b)
+
+    pixel_w1 = _hist_wasserstein_1d(real_a.numpy().ravel(), gen_imgs.numpy().ravel(), bins=32)
+    pixel_w1_ref = _hist_wasserstein_1d(real_a.numpy().ravel(), real_b.numpy().ravel(), bins=32)
+
+    grad_w1 = _hist_wasserstein_1d(_sobel_gradient_magnitude(real_a), _sobel_gradient_magnitude(gen_imgs), bins=32)
+    grad_w1_ref = _hist_wasserstein_1d(_sobel_gradient_magnitude(real_a), _sobel_gradient_magnitude(real_b), bins=32)
+
+    metrics = {
+        "mmd_real_gen": mmd_real_gen,
+        "mmd_real_split": mmd_real_split,
+        "pixel_w1": pixel_w1,
+        "pixel_w1_ref": pixel_w1_ref,
+        "grad_w1": grad_w1,
+        "grad_w1_ref": grad_w1_ref,
+    }
+
+    fig_dir = _resolve_path(cfg.fig_dir)
+    saved_fig = save_evaluation_figure(fig_dir, real_a, gen_imgs, metrics)
+
+    ckpt_epoch = ckpt.get("epoch", "N/A")
+    ckpt_loss = ckpt.get("loss", "N/A")
+
+    print("=== Mini DDPM Evaluation Summary (CPU) ===")
+    print(f"Checkpoint      : {ckpt_path} (epoch={ckpt_epoch}, loss={ckpt_loss})")
+    print(f"Eval Samples    : {half} per set (image_size={cfg.image_size}, channels={cfg.channels})")
+    print(f"RBF-MMD (Real vs Gen)   : {mmd_real_gen:.6f}  [Real Split Ref: {mmd_real_split:.6f}]")
+    print(f"Pixel W1 (Real vs Gen)  : {pixel_w1:.6f}  [Real Split Ref: {pixel_w1_ref:.6f}]")
+    print(f"Sobel Grad W1 (R vs G)  : {grad_w1:.6f}  [Real Split Ref: {grad_w1_ref:.6f}]")
+    print(f"Saved figure    : {saved_fig}")
+
+    return metrics
+
+
+if __name__ == "__main__":
+    evaluate()
+```
+
+### `src/ablation.py`
+```python
+import copy
+import json
+import math
+import sys
+import time
+from pathlib import Path
+from typing import Any, Dict, List
+
+# Bootstrap sys.path di level modul agar aman dijalankan via `python src/ablation.py`
+ROOT_DIR = Path(__file__).resolve().parents[1]
+if str(ROOT_DIR) not in sys.path:
+    sys.path.insert(0, str(ROOT_DIR))
+
+import matplotlib
+
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
+import torch
+import torch.nn.functional as F
+
+from src.config import Config
+from src.data import get_dataloader
+from src.diffusion import DDPM
+from src.model import DDPMUNet
+from src.train import set_seed
+
+# Dibatasi 2 epoch: satu epoch terukur 915 dtk di CPU, 3 epoch x 2 varian > 1 jam.
+ABLATION_EPOCHS = 2
+
+class CosineDDPM(DDPM):
+    """Subclass DDPM dengan cosine noise schedule (Nichol & Dhariwal, 2021)."""
+
+    def __init__(
+        self,
+        timesteps: int = 1000,
+        s: float = 0.008,
+        clip_denoised: bool = True,
+    ) -> None:
+        super().__init__(
+            timesteps=timesteps,
+            beta_start=1e-4,
+            beta_end=0.02,
+            clip_denoised=clip_denoised,
+        )
+
+        # Hitung alpha_bar_t dalam float64 untuk presisi numerik di dekat t = 0
+        steps = timesteps + 1
+        t = torch.linspace(0, timesteps, steps, dtype=torch.float64)
+        f_t = torch.cos(((t / timesteps) + s) / (1.0 + s) * (math.pi / 2.0)) ** 2
+        alphas_cumprod_raw = f_t / f_t[0]
+
+        betas = 1.0 - (alphas_cumprod_raw[1:] / alphas_cumprod_raw[:-1])
+        betas = torch.clamp(betas, min=1e-4, max=0.999).to(torch.float32)
+
+        # Turunkan seluruh buffer dari betas pasca-clamp agar 100% konsisten
+        alphas = 1.0 - betas
+        alphas_cumprod = torch.cumprod(alphas, dim=0)
+        alphas_cumprod_prev = F.pad(alphas_cumprod[:-1], (1, 0), value=1.0)
+
+        sqrt_alphas_cumprod = torch.sqrt(alphas_cumprod)
+        sqrt_one_minus_alphas_cumprod = torch.sqrt(1.0 - alphas_cumprod)
+        sqrt_recip_alphas_cumprod = torch.sqrt(1.0 / alphas_cumprod)
+        sqrt_recipm1_alphas_cumprod = torch.sqrt(1.0 / alphas_cumprod - 1.0)
+
+        posterior_variance = (
+            betas * (1.0 - alphas_cumprod_prev) / (1.0 - alphas_cumprod)
+        )
+        posterior_log_variance_clipped = torch.log(
+            torch.clamp(posterior_variance, min=1e-20)
+        )
+        posterior_mean_coef1 = (
+            betas * torch.sqrt(alphas_cumprod_prev) / (1.0 - alphas_cumprod)
+        )
+        posterior_mean_coef2 = (
+            (1.0 - alphas_cumprod_prev) * torch.sqrt(alphas) / (1.0 - alphas_cumprod)
+        )
+
+        updated_buffers = {
+            "betas": betas,
+            "alphas": alphas,
+            "alphas_cumprod": alphas_cumprod,
+            "alphas_cumprod_prev": alphas_cumprod_prev,
+            "sqrt_alphas_cumprod": sqrt_alphas_cumprod,
+            "sqrt_one_minus_alphas_cumprod": sqrt_one_minus_alphas_cumprod,
+            "sqrt_recip_alphas_cumprod": sqrt_recip_alphas_cumprod,
+            "sqrt_recipm1_alphas_cumprod": sqrt_recipm1_alphas_cumprod,
+            "posterior_variance": posterior_variance,
+            "posterior_log_variance_clipped": posterior_log_variance_clipped,
+            "posterior_mean_coef1": posterior_mean_coef1,
+            "posterior_mean_coef2": posterior_mean_coef2,
+        }
+
+        existing_buffers = dict(self.named_buffers())
+        for buf_name, buf_tensor in updated_buffers.items():
+            if buf_name not in existing_buffers:
+                raise KeyError(f"Buffer '{buf_name}' tidak ditemukan pada induk DDPM.")
+            self.register_buffer(buf_name, buf_tensor)
+
+def run_variant(name: str, cfg: Config, use_cosine: bool) -> Dict[str, Any]:
+    """Jalankan training 3 epoch dengan seed & urutan batch identik per varian."""
+    variant_cfg = copy.deepcopy(cfg)
+    variant_cfg.epochs = ABLATION_EPOCHS
+    variant_cfg.num_workers = 0
+    variant_cfg.beta_schedule = "cosine" if use_cosine else "linear"
+
+    # Isolasi direktori keluaran agar checkpoints/ddpm_best.pt & logs/train_history.json aman
+    variant_ckpt_dir = Path(cfg.ckpt_dir) / "ablation" / name
+    variant_log_dir = Path(cfg.log_dir) / "ablation"
+    variant_ckpt_dir.mkdir(parents=True, exist_ok=True)
+    variant_log_dir.mkdir(parents=True, exist_ok=True)
+
+    variant_cfg.ckpt_dir = str(variant_ckpt_dir)
+    variant_cfg.log_dir = str(variant_log_dir)
+
+    # Reset seed sebelum inisialisasi dataloader, model, dan sampling noise
+    set_seed(variant_cfg.seed)
+    device = torch.device("cpu")
+
+    train_loader = get_dataloader(variant_cfg, train=True)
+
+    model = DDPMUNet(
+        in_channels=variant_cfg.channels,
+        base_ch=variant_cfg.unet_base,
+        time_emb_dim=variant_cfg.time_embed_dim,
+    ).to(device)
+
+    if use_cosine:
+        diffusion: DDPM = CosineDDPM(timesteps=variant_cfg.timesteps).to(device)
+    else:
+        diffusion = DDPM(
+            timesteps=variant_cfg.timesteps,
+            beta_start=variant_cfg.beta_start,
+            beta_end=variant_cfg.beta_end,
+        ).to(device)
+
+    num_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+    optimizer = torch.optim.Adam(model.parameters(), lr=variant_cfg.lr)
+
+    epoch_losses: List[float] = []
+    epoch_times: List[float] = []
+    best_loss = float("inf")
+
+    print(f"\n[Ablation] Menjalankan varian '{name}' ({variant_cfg.beta_schedule})...")
+
+    for epoch in range(1, variant_cfg.epochs + 1):
+        model.train()
+        t_start = time.perf_counter()
+        running_loss = 0.0
+        total_samples = 0
+
+        for batch in train_loader:
+            x0 = batch[0] if isinstance(batch, (list, tuple)) else batch
+            x0 = x0.to(device)
+            batch_size = x0.shape[0]
+
+            t = torch.randint(
+                0, variant_cfg.timesteps, (batch_size,), device=device
+            ).long()
+
+            optimizer.zero_grad(set_to_none=True)
+            loss = diffusion.p_losses(model, x0, t)
+            loss.backward()
+            optimizer.step()
+
+            running_loss += loss.item() * batch_size
+            total_samples += batch_size
+
+        elapsed = time.perf_counter() - t_start
+        avg_loss = running_loss / max(total_samples, 1)
+
+        epoch_losses.append(avg_loss)
+        epoch_times.append(elapsed)
+
+        ckpt_payload = {
+            "epoch": epoch,
+            "variant": name,
+            "beta_schedule": variant_cfg.beta_schedule,
+            "model_state_dict": model.state_dict(),
+            "optimizer_state_dict": optimizer.state_dict(),
+            "loss": avg_loss,
+        }
+        torch.save(ckpt_payload, variant_ckpt_dir / f"ddpm_epoch_{epoch:03d}.pt")
+
+        if avg_loss < best_loss:
+            best_loss = avg_loss
+            torch.save(ckpt_payload, variant_ckpt_dir / "ddpm_best.pt")
+
+        print(
+            f"  Epoch {epoch}/{variant_cfg.epochs} | "
+            f"Loss: {avg_loss:.5f} | Waktu: {elapsed:.2f} dtk"
+        )
+
+    log_path = variant_log_dir / f"{name}_history.json"
+    history_payload = {
+        "variant": name,
+        "beta_schedule": variant_cfg.beta_schedule,
+        "seed": variant_cfg.seed,
+        "timesteps": variant_cfg.timesteps,
+        "unet_base": variant_cfg.unet_base,
+        "num_params": num_params,
+        "epoch_losses": epoch_losses,
+        "epoch_times_sec": epoch_times,
+        "total_time_sec": sum(epoch_times),
+    }
+    with open(log_path, "w", encoding="utf-8") as f:
+        json.dump(history_payload, f, indent=2)
+
+    return history_payload
+
+def plot_ablation(results: List[Dict[str, Any]], save_path: Path) -> None:
+    """Plot kurva training loss kedua varian dalam satu gambar PNG."""
+    save_path = Path(save_path)
+    save_path.parent.mkdir(parents=True, exist_ok=True)
+
+    fig, ax = plt.subplots(figsize=(8.5, 5.0), dpi=150)
+
+    styles = {
+        "linear": {"color": "#1f77b4", "marker": "o", "linestyle": "-"},
+        "cosine": {"color": "#d95f02", "marker": "s", "linestyle": "--"},
+    }
+
+    for res in results:
+        name = res["variant"]
+        losses = res["epoch_losses"]
+        epochs = list(range(1, len(losses) + 1))
+        st = styles.get(name, {"color": "#2ca02c", "marker": "^", "linestyle": "-."})
+
+        label = f"{name.capitalize()} Schedule (T={res['timesteps']})"
+        ax.plot(
+            epochs,
+            losses,
+            label=label,
+            color=st["color"],
+            marker=st["marker"],
+            linestyle=st["linestyle"],
+            linewidth=2.2,
+            markersize=7,
+        )
+
+        # Anotasi nilai loss eksak pada setiap titik epoch
+        offset_y = 8 if name == "linear" else -14
+        for ep, val in zip(epochs, losses):
+            ax.annotate(
+                f"{val:.5f}",
+                (ep, val),
+                textcoords="offset points",
+                xytext=(0, offset_y),
+                ha="center",
+                fontsize=8.5,
+                color=st["color"],
+                fontweight="bold",
+            )
+
+    ax.set_title(
+        "Ablation Study: Linear vs Cosine Noise Schedule "
+        f"({max(len(r['epoch_losses']) for r in results)} Epoch, Fashion-MNIST)",
+        fontsize=11.5,
+        fontweight="bold",
+        pad=12,
+    )
+    ax.set_xlabel("Epoch", fontsize=10.5)
+    ax.set_ylabel("Mean Squared Error (MSE) Loss", fontsize=10.5)
+    ax.set_xticks(range(1, max(len(r["epoch_losses"]) for r in results) + 1))
+    ax.grid(True, linestyle=":", alpha=0.6)
+    ax.legend(frameon=True, fontsize=9.5)
+
+    fig.tight_layout()
+    fig.savefig(save_path, bbox_inches="tight")
+    plt.close(fig)
+    print(f"\n[Ablation] Grafik perbandingan disimpan ke: {save_path}")
+
+def _print_comparison_table(results: List[Dict[str, Any]]) -> None:
+    """Cetak tabel ringkasan perbandingan ke konsol."""
+    n_epochs = max(len(r["epoch_losses"]) for r in results)
+    ep_cols = " | ".join(f"{'Epoch ' + str(i):>9}" for i in range(1, n_epochs + 1))
+    header = (
+        f"{'Varian':<10} | {'Params':>9} | {ep_cols} | "
+        f"{'Avg Time/Ep':>11} | {'Total Time':>10}"
+    )
+    sep = "-" * len(header)
+    print("\n" + sep)
+    print(f"HASIL ABLATION STUDY NOISE SCHEDULE ({n_epochs} EPOCH)")
+    print(sep)
+    print(header)
+    print(sep)
+
+    for res in results:
+        losses = res["epoch_losses"]
+        times = res["epoch_times_sec"]
+        avg_time = sum(times) / len(times)
+        loss_cells = " | ".join(f"{v:>9.5f}" for v in losses)
+        print(
+            f"{res['variant']:<10} | "
+            f"{res['num_params']:>9,d} | "
+            f"{loss_cells} | "
+            f"{avg_time:>9.2f} s | "
+            f"{res['total_time_sec']:>8.2f} s"
+        )
+    print(sep)
+
+def main() -> None:
+    cfg = Config()
+    cfg.epochs = ABLATION_EPOCHS
+    cfg.num_workers = 0
+
+    linear_res = run_variant(name="linear", cfg=cfg, use_cosine=False)
+    cosine_res = run_variant(name="cosine", cfg=cfg, use_cosine=True)
+
+    results = [linear_res, cosine_res]
+    _print_comparison_table(results)
+
+    fig_path = Path(cfg.fig_dir) / "ablation_noise_schedule.png"
+    plot_ablation(results, save_path=fig_path)
+
+if __name__ == "__main__":
+    main()
+```
+
+### `src/figures.py`
+```python
+import sys
+from pathlib import Path
+
+# Bootstrap sys.path di level modul agar `python src/figures.py` mendukung import absolut `src.*`
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
+import time
+import matplotlib
+
+matplotlib.use("Agg")  # Backend non-interaktif agar aman di CPU/Windows tanpa GUI
+import matplotlib.pyplot as plt
+import torch
+
+from src.config import Config
+from src.data import get_dataset
+from src.evaluate import load_checkpoint_and_models
+from src.sample import generate_with_fixed_noise
+
+FASHION_MNIST_CLASSES: list[str] = [
+    "T-shirt/top",
+    "Trouser",
+    "Pullover",
+    "Dress",
+    "Coat",
+    "Sandal",
+    "Shirt",
+    "Sneaker",
+    "Bag",
+    "Ankle boot",
+]
+
+
+def _select_stratified_real_samples(
+    cfg: Config, n_samples: int = 6, seed: int = 42
+) -> tuple[torch.Tensor, list[int]]:
+    """Ambil sampel data asli terstratifikasi per kelas secara deterministik."""
+    test_dataset = get_dataset(cfg, train=False)
+    generator = torch.Generator().manual_seed(seed)
+    shuffled_indices = torch.randperm(len(test_dataset), generator=generator).tolist()
+
+    selected_by_class: dict[int, torch.Tensor] = {}
+
+    for idx in shuffled_indices:
+        img, label = test_dataset[idx]
+        label_int = int(label)
+        if label_int in selected_by_class:
+            continue
+        # Denormalisasi dari [-1, 1] ke [0, 1] sesuai transform Normalize(0.5, 0.5)
+        selected_by_class[label_int] = (img * 0.5 + 0.5).clamp(0.0, 1.0)
+        if len(selected_by_class) >= n_samples:
+            break
+
+    ordered_pairs = sorted(selected_by_class.items(), key=lambda item: item[0])
+
+    real_labels = [lbl for lbl, _ in ordered_pairs[:n_samples]]
+    real_images = torch.stack([img for _, img in ordered_pairs[:n_samples]], dim=0)
+    return real_images, real_labels
+
+
+def build_comparison_grid(
+    real: torch.Tensor,
+    fake: torch.Tensor,
+    real_labels: list[int] | torch.Tensor,
+    class_names: list[str],
+    save_path: Path | str,
+    n_cols: int = 6,
+) -> Path:
+    """Bangun figur PNG 2 baris x n_cols kolom (baris asli berlabel, baris sampling tanpa label)."""
+    if n_cols < 1 or n_cols > 12:
+        raise ValueError(f"n_cols harus berada di rentang 1..12, diterima: {n_cols}")
+    if real.shape[0] < n_cols or fake.shape[0] < n_cols:
+        raise ValueError(
+            f"Jumlah sampel tidak cukup untuk n_cols={n_cols}: "
+            f"real={real.shape[0]}, fake={fake.shape[0]}"
+        )
+
+    save_path = Path(save_path)
+    save_path.parent.mkdir(parents=True, exist_ok=True)
+
+    real_np = real[:n_cols].detach().cpu().clamp(0.0, 1.0).numpy()
+    fake_np = fake[:n_cols].detach().cpu().clamp(0.0, 1.0).numpy()
+    labels_list = [int(lbl) for lbl in real_labels[:n_cols]]
+
+    fig, axes = plt.subplots(
+        nrows=2,
+        ncols=n_cols,
+        figsize=(n_cols * 2.0, 4.9),
+        gridspec_kw={"hspace": 0.48, "wspace": 0.08},
+    )
+    if n_cols == 1:
+        axes = axes.reshape(2, 1)
+
+    for col in range(n_cols):
+        # Baris atas: data asli beserta label kelas
+        ax_real = axes[0, col]
+        ax_real.imshow(real_np[col, 0], cmap="gray", vmin=0.0, vmax=1.0)
+        ax_real.set_xticks([])
+        ax_real.set_yticks([])
+        ax_real.set_xlabel(class_names[labels_list[col]], fontsize=9, labelpad=4)
+        for spine in ax_real.spines.values():
+            spine.set_edgecolor("#CCCCCC")
+            spine.set_linewidth(0.7)
+
+        # Baris bawah: hasil sampling tanpa label kelas
+        ax_fake = axes[1, col]
+        ax_fake.imshow(fake_np[col, 0], cmap="gray", vmin=0.0, vmax=1.0)
+        ax_fake.set_xticks([])
+        ax_fake.set_yticks([])
+        for spine in ax_fake.spines.values():
+            spine.set_edgecolor("#CCCCCC")
+            spine.set_linewidth(0.7)
+
+    # Hitung posisi aktual tiap baris agar judul baris rata kiri presisi dan tidak terpotong
+    fig.canvas.draw()
+    left_x = axes[0, 0].get_position().x0
+    top_row_y = axes[0, 0].get_position().y1 + 0.025
+    bottom_row_y = axes[1, 0].get_position().y1 + 0.025
+
+    fig.text(
+        left_x,
+        top_row_y,
+        "Data asli (test set)",
+        fontsize=11,
+        fontweight="bold",
+        ha="left",
+        va="bottom",
+    )
+    fig.text(
+        left_x,
+        bottom_row_y,
+        "Hasil sampling (T=1000, seed 1234)",
+        fontsize=11,
+        fontweight="bold",
+        ha="left",
+        va="bottom",
+    )
+
+    fig.savefig(save_path, dpi=200, bbox_inches="tight", pad_inches=0.15)
+    plt.close(fig)
+    return save_path
+
+
+def main() -> None:
+    start_time = time.perf_counter()
+
+    device = torch.device("cpu")
+    n_cols = 6
+    sampling_seed = 1234
+
+    default_cfg = Config()
+    ckpt_path = Path(default_cfg.ckpt_dir) / "ddpm_best.pt"
+    cfg, model, diffusion, _ = load_checkpoint_and_models(ckpt_path, device)
+
+    real_images, real_labels = _select_stratified_real_samples(
+        cfg=cfg,
+        n_samples=n_cols,
+        seed=cfg.seed,
+    )
+
+    fake_images = generate_with_fixed_noise(
+        model=model,
+        diffusion=diffusion,
+        num_samples=n_cols,
+        img_size=cfg.image_size,
+        channels=cfg.channels,
+        device=device,
+        fixed_seed=sampling_seed,
+    )
+
+    output_path = Path(cfg.fig_dir) / "real_vs_generated.png"
+    saved_path = build_comparison_grid(
+        real=real_images,
+        fake=fake_images,
+        real_labels=real_labels,
+        class_names=FASHION_MNIST_CLASSES,
+        save_path=output_path,
+        n_cols=n_cols,
+    )
+
+    elapsed = time.perf_counter() - start_time
+    print(f"Figur disimpan   : {saved_path.as_posix()}")
+    print(f"Shape tensor real: {tuple(real_images.shape)}")
+    print(f"Shape tensor fake: {tuple(fake_images.shape)}")
+    print(f"Waktu eksekusi   : {elapsed:.2f} detik ({elapsed / 60.0:.2f} menit)")
+
+
+if __name__ == "__main__":
+    main()
+```
