@@ -683,7 +683,7 @@ Pertanyaan 4 diajukan lebih dulu daripada meminta kode karena `src/train.py` men
   Epoch 2/2 | Loss: 0.13699 | Waktu: 836.77 dtk
 
 -------------------------------------------------------------------------
-HASIL ABLATION STUDY NOISE SCHEDULE (2 EPOCH)
+HASIL ABLATION STUDY NOISE SCHEDULE (3 EPOCH)
 -------------------------------------------------------------------------
 Varian     |    Params |   Epoch 1 |   Epoch 2 | Avg Time/Ep | Total Time
 -------------------------------------------------------------------------
@@ -711,12 +711,12 @@ Run pertama memakai 3 epoch sesuai prompt. Hasil nyata epoch pertama:
   Epoch 1/3 | Loss: 0.18872 | Waktu: 915.48 dtk
 ```
 
-915,48 detik per epoch berarti 6 epoch ≈ 92 menit — melewati batas waktu sesi (1 jam). Proses dihentikan manual oleh operator (`py.exe` pid 13744 → `python.exe` pid 3948, `Stop-Process -Force`), **bukan crash**, dan hasilnya tidak dipalsukan: tidak ada angka epoch 2/3 yang dikarang untuk run ini.
+915,48 detik per epoch berarti 6 epoch ≈ 92 menit — melewati batas waktu sesi (1 jam). Proses dihentikan manual oleh operator (`py.exe` pid 13744 → `python.exe` pid 3948, `Stop-Process -Force`), **bukan crash** (wrapper `tee` tetap melaporkan exit 0 karena pipa, bukan karena python selesai), dan hasilnya tidak dipalsukan: tidak ada angka epoch 2/3 yang dikarang untuk run ini.
 
 Tindakan operator sebelum run kedua (perubahan kecil, bukan logika model):
 
 1. `ABLATION_EPOCHS = 2` sebagai konstanta modul, dipakai `run_variant` dan `main` — 3 epoch per varian diturunkan jadi 2 karena batas waktu, dicatat di komentar kode.
-2. Header tabel, judul grafik, dan judul tabel konsol dibuat dinamis mengikuti jumlah epoch (sebelumnya hardcode "Epoch 1/2/3" dan "(3 EPOCH)", sehingga akan `IndexError` di `losses[2]` kalau dijalankan 2 epoch).
+2. Judul grafik dan header tabel dibuat dinamis mengikuti jumlah epoch (sebelumnya hardcode "Epoch 1/2/3" dan "(3 EPOCH)", sehingga akan `IndexError` di `losses[2]` kalau dijalankan 2 epoch). Perbaikan ini dikerjakan **setelah** run final selesai, jadi yang tercetak di konsol run final masih judul lama `(3 EPOCH)` — dikutip apa adanya di blok output di atas; hasil verifikasi ulang hanya syntax check, tidak ada run penuh ketiga.
 
 Bukti bahwa pemotongan epoch tidak mengubah apa pun selain durasi: loss epoch 1 varian linear pada run kedua **identik** dengan run pertama (0.18872) karena seed dan urutan data sama.
 
