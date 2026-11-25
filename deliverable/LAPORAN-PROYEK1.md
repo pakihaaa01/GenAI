@@ -8,7 +8,7 @@
 2. `[Nama Anggota B]` — *Data Pipeline & Preprocessing* + *Lead Documentarian & Error Handler*
 
 **LLM yang dipakai:** Google Gemini
-**Repo:** `https://github.com/<username>/miniddpm-fashionmnist`
+**Repo:** `https://github.com/pakihaaa01/GenAI`
 
 ---
 

@@ -1,3 +1,4 @@
+9ea4b36 | pakihaaa01 | 2026-11-23 | hasil: training 25 epoch selesai (loss 0.16831 -> 0.04307), grid progres + kurva loss, koreksi param 793.953, share link log diperbaiki
 1b3e66d | pakihaaa01 | 2026-11-23 | docs: Log Interaksi 5 sesi (share link Gemini), notebook Colab, panduan ekspor deliverable
 2fa68d0 | pakihaaa01 | 2026-11-23 | sesi 4: train.py + sample.py — smoke test 1 epoch LULUS, sampling grid jalan
 d922a00 | pakihaaa01 | 2026-11-23 | sesi 2-3: diffusion.py + model.py (UNet 1.78M param) jalan
