@@ -1,0 +1,17 @@
+{
+  "variant": "cosine",
+  "beta_schedule": "cosine",
+  "seed": 42,
+  "timesteps": 1000,
+  "unet_base": 32,
+  "num_params": 793953,
+  "epoch_losses": [
+    0.25579515519814616,
+    0.1369904235769541
+  ],
+  "epoch_times_sec": [
+    854.9041735000064,
+    836.767686200008
+  ],
+  "total_time_sec": 1691.6718597000145
+}

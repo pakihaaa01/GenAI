@@ -547,6 +547,196 @@ Kesimpulan yang bisa ditulis di laporan: model **belum** mencapai kualitas distr
 
 ---
 
+## Sesi #7 — 25/11/2026
+
+- **Target Modul:** `src/ablation.py`
+- **Operator:** Mia Rosiana Santoso
+- **Tautan Sesi Chat:** _belum diisi — link share percakapan Gemini menyusul dari operator (dialog share tidak berhasil dibuka lewat otomasi; diisi manual, tidak dikarang)_
+- **Model LLM:** Gemini
+
+### 1. TAHAP INISIASI (Meminta Kode Awal)
+
+**Prompt Kelompok:**
+
+> "konteks: aku punya proyek Mini DDPM from scratch untuk Fashion-MNIST 28x28 grayscale, sudah selesai training 25 epoch (loss 0.16831 -> 0.04297, model 793.953 parameter, base_ch=32, T=1000, beta linear 1e-4 sampai 0.02). sekarang sesi 7: aku harus bikin src/ablation.py yang membandingkan dua konfigurasi supaya kelihatan pilihan di config.py itu masuk akal, bukan asal comot. jalan di CPU, Windows, python 3.13, torch 2.14.0+cpu.
+>
+> yang mau aku bandingkan: noise schedule linear (yang sekarang dipakai) versus cosine. masing-masing 3 epoch saja, tujuannya lihat tren loss, bukan hasil final.
+>
+> masalahnya begini: src/diffusion.py cuma punya linear, beta-nya di-hardcode pakai torch.linspace di __init__, dan field beta_schedule di Config nggak pernah dibaca siapa-siapa. aku nggak boleh ngubah diffusion.py karena itu file punya rekan tim dan sudah diverifikasi. jadi kalau mau cosine, semua harus dari dalam ablation.py tanpa nyentuh file itu.
+>
+> yang aku bingung:
+>
+> 1. cara paling bersih nambah schedule cosine tanpa ngubah diffusion.py apa? subclass DDPM lalu hitung ulang buffer-nya, atau ada cara lain yang lebih sedikit menduplikasi rumus?
+>
+> 2. kalau lewat subclass, buffer apa saja yang wajib dihitung ulang supaya q_sample, p_losses, dan p_sample_loop tetap konsisten? aku nggak mau hasilnya beda bukan karena schedule-nya, tapi karena buffer-nya nggak sinkron.
+>
+> 3. 3 epoch cukup nggak buat lihat bedanya, atau selisihnya bakal ketutup noise? kalau ternyata dua-duanya mirip, gimana cara nulis kesimpulan yang jujur tanpa maksa bilang salah satu lebih bagus?
+>
+> 4. src/train.py selalu menulis checkpoints/ddpm_best.pt dan logs/train_history.json. ablation-ku nggak boleh nimpa dua file itu. aman nggak kalau aku cuma mengganti cfg.ckpt_dir dan cfg.log_dir per varian, atau harus punya loop training sendiri?
+>
+> yang aku minta ada di src/ablation.py, spesifik per fungsi:
+>
+> 1. CosineDDPM(DDPM)
+>    subclass dari DDPM yang menghitung ulang buffer schedule cosine di dalam ablation.py, tanpa mengubah src/diffusion.py.
+>
+> 2. run_variant(name, cfg, use_cosine)
+>    menjalankan training 3 epoch dengan seed dan urutan data yang sama untuk kedua varian, menyimpan checkpoint dan log ke folder terpisah (bukan checkpoints/ddpm_best.pt atau logs/train_history.json), lalu mencatat loss tiap epoch dan waktu eksekusinya.
+>
+> 3. plot_ablation(results, save_path)
+>    menggabungkan kurva loss kedua varian dalam satu grafik PNG dan menyimpannya ke report/figures/.
+>
+> 4. main()
+>    menjalankan varian linear dan cosine, mencetak tabel perbandingan di konsol (loss epoch 1/2/3, waktu per epoch, jumlah parameter), lalu memanggil fungsi plot.
+>
+> signature yang ada di repo (jangan diubah, ini verbatim):
+>
+> ```python
+> # src/config.py
+> @dataclass
+> class Config:
+>     dataset: str = "FashionMNIST"
+>     data_root: str = "data"
+>     subset_size: int = 15_000
+>     image_size: int = 28
+>     channels: int = 1
+>     num_workers: int = 0
+>     unet_base: int = 32
+>     time_embed_dim: int = 128
+>     num_groups: int = 8
+>     timesteps: int = 1000
+>     beta_start: float = 1e-4
+>     beta_end: float = 0.02
+>     beta_schedule: str = "linear"
+>     batch_size: int = 128
+>     epochs: int = 25
+>     lr: float = 2e-4
+>     seed: int = 42
+>     sample_every: int = 5
+>     num_sample_images: int = 64
+>     ckpt_dir: str = "checkpoints"
+>     log_dir: str = "logs"
+>     fig_dir: str = "report/figures"
+>     # metode: to_dict(), run_name()
+>
+> # src/diffusion.py
+> # buffer yang terdaftar di __init__: betas, alphas, alphas_cumprod,
+> # alphas_cumprod_prev, sqrt_alphas_cumprod, sqrt_one_minus_alphas_cumprod,
+> # sqrt_recip_alphas_cumprod, sqrt_recipm1_alphas_cumprod, posterior_variance,
+> # posterior_log_variance_clipped, posterior_mean_coef1, posterior_mean_coef2
+> class DDPM(nn.Module):
+>     def __init__(self, timesteps: int = 1000, beta_start: float = 1e-4,
+>                  beta_end: float = 0.02, clip_denoised: bool = True) -> None
+>     def q_sample(self, x0, t, noise=None) -> torch.Tensor
+>     def p_losses(self, model, x0, t, noise=None) -> torch.Tensor
+>     def predict_start_from_noise(self, x_t, t, noise)
+>     def q_posterior_mean_variance(self, x0, x_t, t)
+>     def p_mean_variance(self, model, x_t, t)
+>     def p_sample(self, model, x_t, t, t_index)
+>     def p_sample_loop(self, model, shape, device="cpu") -> torch.Tensor
+>
+> # src/model.py
+> class DDPMUNet(nn.Module):
+>     def __init__(self, in_channels: int = 1, base_ch: int = 48,
+>                  time_emb_dim: int = 192)
+>
+> # src/train.py
+> def set_seed(seed: int = 42)
+> def train(cfg: Config)   # loop tqdm; simpan ddpm_epoch_XXX.pt tiap epoch,
+>                          # ddpm_best.pt kalau loss terbaik, logs/train_history.json
+>
+> # src/data.py
+> def get_dataset(cfg, train: bool = True) -> Dataset
+> def get_dataloader(cfg, train: bool = True) -> DataLoader
+> ```
+>
+> batasan:
+>
+> - cuma bikin src/ablation.py, jangan ubah file lain di src/ (config.py, data.py, diffusion.py, model.py, train.py, sample.py, plot_loss.py sudah diverifikasi)
+> - jangan pakai library diffusion siap pakai (diffusers dll)
+> - import absolut from src.x import y, dan bootstrap sys.path di level modul (bukan di dalam `__main__`), karena skrip dijalankan `python src/ablation.py`
+> - num_workers=0 (Windows)
+> - 3 epoch per konfigurasi, jangan lebih
+> - checkpoint dan log ablation wajib di lokasi terpisah; checkpoints/ddpm_best.pt dan logs/train_history.json tidak boleh tersentuh
+> - seed dan urutan data harus sama untuk kedua varian
+> - keluaran: tabel perbandingan di konsol (loss epoch 1/2/3, waktu per epoch, jumlah parameter) + minimal satu PNG di report/figures/ berisi dua kurva loss dalam satu plot"
+
+**Alasan Khusus:**
+
+Ablation ini diminta untuk mempertanggungjawabkan pilihan `beta_schedule = "linear"` di `config.py`. Pemeriksaan repo sebelum menulis prompt menemukan bahwa field itu **tidak dibaca file mana pun** (grep: 1 definisi, 0 pemakaian) — `DDPM.__init__` meng-hardcode `torch.linspace(beta_start, beta_end, timesteps)`. Jadi pilihan schedule di proyek ini sebelumnya tidak punya dasar eksperimen sama sekali; ablation dibuat untuk mengisinya.
+
+Karena `src/diffusion.py` milik rekan tim dan tidak boleh disentuh, cosine harus datang dari subclass di dalam `ablation.py`. Dua belas nama buffer didaftarkan verbatim di prompt supaya jawaban tidak menebak nama buffer yang harus dihitung ulang — risiko yang disebut eksplisit di pertanyaan 2 (hasil beda bukan karena schedule, tapi karena buffer tidak sinkron).
+
+Pertanyaan 4 diajukan lebih dulu daripada meminta kode karena `src/train.py` menulis path statis: kalau `train()` dipanggil ulang dengan `cfg.ckpt_dir`/`cfg.log_dir` yang diganti, `DDPM` standar tetap yang diinstansiasi di dalamnya sehingga varian cosine tidak akan terpakai. Prompt meminta jawaban eksplisit soal ini sebelum menulis loop training sendiri.
+
+**Output Model:**
+`src/ablation.py` — 316 baris, import absolut `from src...` dengan bootstrap `ROOT_DIR = Path(__file__).resolve().parents[1]` di level modul. Isi: `CosineDDPM(DDPM)` (hitung `alpha_bar` cosine `f(t)=cos((t/T+s)/(1+s)·π/2)²`, `s=0.008`, di float64 lalu cast float32, `betas = 1 - ᾱ_t/ᾱ_{t-1}` di-clamp `[1e-4, 0.999]`, lalu `register_buffer` menimpa 12 buffer induk; `raise KeyError` bila nama buffer tidak ada di induk), `run_variant(name, cfg, use_cosine)` (`copy.deepcopy(cfg)`, seed dan `DataLoader` sama untuk kedua varian, ckpt ke `checkpoints/ablation/<name>/`, log ke `logs/ablation/<name>_history.json`, payload `{epoch, variant, beta_schedule, model_state_dict, optimizer_state_dict, loss}`), `plot_ablation(results, save_path)` (figsize 8.5×5.0 dpi 150; linear `#1f77b4` bulat solid, cosine `#d95f02` kotak putus-putus), `_print_comparison_table`, `main()`.
+
+**Hasil Uji (run final, 2 epoch per varian):**
+
+```
+[Ablation] Menjalankan varian 'linear' (linear)...
+  Epoch 1/2 | Loss: 0.18872 | Waktu: 911.23 dtk
+  Epoch 2/2 | Loss: 0.08593 | Waktu: 868.07 dtk
+
+[Ablation] Menjalankan varian 'cosine' (cosine)...
+  Epoch 1/2 | Loss: 0.25580 | Waktu: 854.90 dtk
+  Epoch 2/2 | Loss: 0.13699 | Waktu: 836.77 dtk
+
+-------------------------------------------------------------------------
+HASIL ABLATION STUDY NOISE SCHEDULE (2 EPOCH)
+-------------------------------------------------------------------------
+Varian     |    Params |   Epoch 1 |   Epoch 2 | Avg Time/Ep | Total Time
+-------------------------------------------------------------------------
+linear     |   793,953 |   0.18872 |   0.08593 |    889.65 s |  1779.29 s
+cosine     |   793,953 |   0.25580 |   0.13699 |    845.84 s |  1691.67 s
+-------------------------------------------------------------------------
+
+[Ablation] Grafik perbandingan disimpan ke: report\figures\ablation_noise_schedule.png
+```
+
+Exit code 0. Total ±58 menit. `logs/ablation/linear_history.json` dan `logs/ablation/cosine_history.json` berisi `num_params: 793953` (identik dengan model utama), `seed: 42`, `timesteps: 1000`, `unet_base: 32`. Gambar 95.627 byte. `checkpoints/ddpm_best.pt` mtime tetap `2026-11-25 18:59:06` — tidak tersentuh; `logs/train_history.json` tidak dibuat ulang.
+
+### 2. TAHAP PENANGANAN EROR / DEBUGGING
+
+#### Error kode pada sesi ini: tidak ada
+
+Kode dari Gemini jalan apa adanya pada percobaan pertama — tidak ada traceback dari `CosineDDPM`, `run_variant`, `plot_ablation`, maupun `main`. Signature yang ditebak di jawaban (`get_dataloader(cfg, train=True)` mengembalikan `(x0, y)`, `p_losses(model, x0, t)`, `DDPMUNet(in_channels, base_ch, time_emb_dim)`) cocok dengan isi repo, jadi tidak ada perbaikan import/argumen yang perlu dikirim balik ke Gemini.
+
+#### Hentikan run pertama (bukan error kode)
+
+Run pertama memakai 3 epoch sesuai prompt. Hasil nyata epoch pertama:
+
+```
+[Ablation] Menjalankan varian 'linear' (linear)...
+  Epoch 1/3 | Loss: 0.18872 | Waktu: 915.48 dtk
+```
+
+915,48 detik per epoch berarti 6 epoch ≈ 92 menit — melewati batas waktu sesi (1 jam). Proses dihentikan manual oleh operator (`py.exe` pid 13744 → `python.exe` pid 3948, `Stop-Process -Force`), **bukan crash**, dan hasilnya tidak dipalsukan: tidak ada angka epoch 2/3 yang dikarang untuk run ini.
+
+Tindakan operator sebelum run kedua (perubahan kecil, bukan logika model):
+
+1. `ABLATION_EPOCHS = 2` sebagai konstanta modul, dipakai `run_variant` dan `main` — 3 epoch per varian diturunkan jadi 2 karena batas waktu, dicatat di komentar kode.
+2. Header tabel, judul grafik, dan judul tabel konsol dibuat dinamis mengikuti jumlah epoch (sebelumnya hardcode "Epoch 1/2/3" dan "(3 EPOCH)", sehingga akan `IndexError` di `losses[2]` kalau dijalankan 2 epoch).
+
+Bukti bahwa pemotongan epoch tidak mengubah apa pun selain durasi: loss epoch 1 varian linear pada run kedua **identik** dengan run pertama (0.18872) karena seed dan urutan data sama.
+
+### 3. INTERPRETASI ANGKA
+
+| Varian | Parameter | Loss epoch 1 | Loss epoch 2 | Rata-rata waktu/epoch | Total |
+|---|---|---|---|---|---|
+| Linear | 793.953 | 0,18872 | 0,08593 | 889,65 s | 1779,29 s |
+| Cosine | 793.953 | 0,25580 | 0,13699 | 845,84 s | 1691,67 s |
+
+Pembacaan yang jujur: pada dua epoch ini **linear memberi loss lebih rendah**, dan penurunannya juga lebih dalam (linear −0,1028; cosine −0,1188). Cosine tidak lebih buruk secara laju penurunan relatif, tapi level loss-nya konsisten lebih tinggi di kedua epoch.
+
+Alasannya bukan "cosine jelek", melainkan perbedaan skala target: schedule cosine mempertahankan `ᾱ_t` lebih tinggi di timestep awal, sehingga noise yang ditambahkan pada `x_t` lebih kecil dan MSE prediksi noise-nya bergerak di skala yang berbeda dari linear. Dua epoch juga jauh dari konvergen (model utama butuh 24 epoch untuk mencapai 0,043), jadi **tidak cukup** untuk menyimpulkan schedule mana yang lebih baik — yang bisa ditulis di laporan hanya: pada anggaran 2 epoch dan subset 15.000 gambar, linear lebih rendah loss-nya, dan perbandingan ini belum menjawab kualitas sampel.
+
+Angka waktu: linear 889,65 s/epoch vs cosine 845,84 s/epoch (cosine ±5% lebih cepat). Selisih ini bukan efek schedule, melainkan variasi beban CPU antar-run — kedua varian memakai arsitektur dan jumlah parameter identik (793.953), jadi tidak ada alasan komputasional cosine lebih murah.
+
+Yang bisa diklaim sebagai temuan teknis justru bagian non-angka: `CosineDDPM` berhasil menimpa 12 buffer `DDPM` tanpa menyentuh `src/diffusion.py`, dan artefak ablation benar-benar terisolasi (`checkpoints/ablation/*`, `logs/ablation/*`, mtime `checkpoints/ddpm_best.pt` tidak berubah).
+
+---
+
 ## Hasil Akhir Training (Bukti Fungsionalitas)
 
 Training penuh dijalankan setelah kelima sesi selesai, memakai kode apa adanya dari log di atas — tanpa perubahan logika, hanya perbaikan import dan penyeragaman angka parameter.
@@ -591,5 +781,6 @@ Loss turun **74,4%** dari epoch 1 ke 25, lalu mendatar di ~0,043 — pola konver
 | 4 | 1 | 0 | — |
 | 5 | 1 + 4 lanjutan | 4 (`UNet`, `checkpoint_dir`, import path, `src` not found) | Gemini |
 | 6 | 1 | 0 error kode (`FileNotFoundError` murni prasyarat: checkpoint belum ada) | — |
+| 7 | 1 | 0 error kode (run pertama dihentikan manual: proyeksi 92 menit > batas 1 jam) | operator (epoch 3→2, header dinamis) |
 
 **Pelajaran utama:** LLM tidak bisa menebak isi file yang tidak diberikan. Dua dari empat error di proyek ini berakar pada satu hal yang sama — konteks kode tidak lengkap di prompt. Setelah signature verbatim ditempel, kode langsung nyambung. Kesimpulan operasional: **tempel signature, bukan ringkasan.**

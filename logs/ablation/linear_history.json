@@ -1,0 +1,17 @@
+{
+  "variant": "linear",
+  "beta_schedule": "linear",
+  "seed": 42,
+  "timesteps": 1000,
+  "unet_base": 32,
+  "num_params": 793953,
+  "epoch_losses": [
+    0.1887159299137246,
+    0.08592644136430871
+  ],
+  "epoch_times_sec": [
+    911.2252993000002,
+    868.0684750000073
+  ],
+  "total_time_sec": 1779.2937743000075
+}
