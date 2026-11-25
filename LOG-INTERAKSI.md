@@ -720,6 +720,8 @@ Tindakan operator sebelum run kedua (perubahan kecil, bukan logika model):
 
 Bukti bahwa pemotongan epoch tidak mengubah apa pun selain durasi: loss epoch 1 varian linear pada run kedua **identik** dengan run pertama (0.18872) karena seed dan urutan data sama.
 
+**Keputusan akhir:** hasil 2 epoch dipakai untuk analisis tren, tidak diulang ke 3 epoch. Batas waktu CPU dan proyeksinya sudah tercatat di atas, jadi pengurangan epoch terdokumentasi, bukan hasil yang dipotong diam-diam.
+
 ### 3. INTERPRETASI ANGKA
 
 | Varian | Parameter | Loss epoch 1 | Loss epoch 2 | Rata-rata waktu/epoch | Total |
