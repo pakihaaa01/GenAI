@@ -551,7 +551,7 @@ Kesimpulan yang bisa ditulis di laporan: model **belum** mencapai kualitas distr
 
 - **Target Modul:** `src/ablation.py`
 - **Operator:** Mia Rosiana Santoso
-- **Tautan Sesi Chat:** _belum diisi — link share percakapan Gemini menyusul dari operator (dialog share tidak berhasil dibuka lewat otomasi; diisi manual, tidak dikarang)_
+- **Tautan Sesi Chat:** https://share.gemini.google/mvsNfSQKek01
 - **Model LLM:** Gemini
 
 ### 1. TAHAP INISIASI (Meminta Kode Awal)
