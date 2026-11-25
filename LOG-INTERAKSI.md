@@ -390,7 +390,7 @@ Bootstrap dipasang di **atas** `data.py`, sebelum import `src.config`. Blok `sys
 
 - **Target Modul:** `src/evaluate.py`
 - **Operator:** Mia Rosiana Santoso
-- **Tautan Sesi Chat:** https://gemini.google.com/app/5a904c76650e189f
+- **Tautan Sesi Chat:** https://share.gemini.google/QMM0U3W3ZDe0
 - **Model LLM:** Gemini
 
 ### 1. TAHAP INISIASI (Meminta Kode Awal)
