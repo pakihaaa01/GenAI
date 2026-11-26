@@ -23,6 +23,7 @@
 | 6 | 25/11/2026 | `src/evaluate.py` — evaluasi kuantitatif | Mia | ✅ LULUS |
 | 7 | 25/11/2026 | `src/ablation.py` — ablasi noise schedule | Mia | ✅ LULUS (epoch 3→2) |
 | 8 | 26/11/2026 | `src/figures.py` — figur asli vs sampling | Mia | ✅ LULUS (koreksi stratifikasi) |
+| 9 | 26/11/2026 | `src/figures_ablation.py` — grid linear vs cosine | Mia | ✅ LULUS (2 error) |
 
 ---
 

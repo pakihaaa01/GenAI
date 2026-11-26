@@ -59,14 +59,16 @@ Loss-nya sederhana: MSE antara noise asli dan noise yang diprediksi. Tidak butuh
 
 ### 1.5 Pembagian Tugas
 
-Panduan asli mengasumsikan 4 anggota; kelompok ini 2 orang, jadi job desk digabung:
+Panduan asli mengasumsikan 4 anggota; kelompok ini 2 orang, jadi job desk digabung menjadi dua peran:
 
-| Anggota | Job desk gabungan | Tanggung jawab konkret |
+| Anggota | Job desk gabungan (panduan) | Yang benar-benar dikerjakan (bukti: operator sesi + author commit) |
 |---|---|---|
-| **A** (Faqih) | Prompt Engineer & LLM Navigator + Training Loop & Tuning | Menyusun prompt bertahap, memandu LLM untuk `data.py`, `diffusion.py`, `model.py`, `train.py`, `sample.py`; menjalankan eksperimen dan mencatat metrik |
-| **B** (Mia) | Data Pipeline & Preprocessing + Documentarian & Error Handler | Menyiapkan dataset dan normalisasi, memverifikasi batch; menulis `evaluate.py` (metrik kuantitatif), `ablation.py` (ablasi noise schedule), `figures.py` (figur asli vs sampling); mengompilasi log sesi #6–#8, menyusun figur dan laporan |
+| **A** — Faqih Abdullah | Prompt Engineer & LLM Navigator + Training Loop & Hyperparameter Tuning | Sesi #1–#5: `src/data.py`, `src/diffusion.py`, `src/model.py`, `src/train.py`, `src/sample.py`, `src/plot_loss.py`; menjalankan training 25 epoch (loss akhir 0,04297) dan eksperimen pendukung. Seluruh commit pada keenam file itu atas nama `pakihaaa01`. |
+| **B** — Mia Rosiana Santoso | Data Pipeline & Preprocessing + Lead Documentarian & Error Handler | Sesi #6–#9: `src/evaluate.py` (metrik kuantitatif), `src/ablation.py` (ablasi noise schedule), `src/figures.py` (figur asli vs sampling), `src/figures_ablation.py` (grid linear vs cosine); mengompilasi `LOG-INTERAKSI.md` sesi #1–#9 beserta tautan percakapan, menyusun laporan dan lampiran kode/commit. Seluruh commit pada keempat file itu atas nama Mia Rosiana Santoso. |
 
-**Justifikasi penggabungan:** pemandu prompt arsitektur butuh umpan balik cepat dari hasil training, sehingga wajar digabung dengan pemilik training loop. Data pipeline dan dokumentasi error bermuara pada log yang sama — setiap error bentuk tensor/data langsung jadi entri log.
+**Justifikasi penggabungan:** pemandu prompt arsitektur butuh umpan balik cepat dari hasil training, sehingga wajar digabung dengan pemilik training loop. Dokumentasi dan penanganan error bermuara pada log yang sama, dan pekerjaan evaluasi menghasilkan artefak yang harus dijelaskan di laporan — sehingga wajar digabung dengan peran dokumentarian.
+
+**Catatan pembagian yang jujur:** job desk panduan menempatkan *Data Pipeline & Preprocessing* di peran B, tetapi kode `src/data.py` dihasilkan pada sesi #1–#2 dengan operator A. Laporan ini mencatatnya apa adanya dan tidak mengklaim sebaliknya: yang bisa diverifikasi dari repo adalah operator tiap sesi (kolom *Operator* di Bab 2) dan author tiap commit (Lampiran A). Verifikasi pipeline — menjalankan `python src/data.py` sampai mencetak `STATUS: LULUS` dan memeriksa shape/rentang batch — adalah bagian job desk B dan langkahnya tercatat di §3.8.
 
 ---
 
@@ -94,6 +96,10 @@ Panduan asli mengasumsikan 4 anggota; kelompok ini 2 orang, jadi job desk digabu
 | 3 | 23/11/2026 | `src/diffusion.py` — kelas `DDPM` | Faqih | ✅ LULUS |
 | 4 | 23/11/2026 | `src/model.py` — U-Net DDPM | Faqih | ✅ LULUS |
 | 5 | 23/11/2026 | `src/train.py` + `src/sample.py` | Faqih | ✅ LULUS (4 error) |
+| 6 | 25/11/2026 | `src/evaluate.py` — evaluasi kuantitatif | Mia | ✅ LULUS |
+| 7 | 25/11/2026 | `src/ablation.py` — ablasi noise schedule | Mia | ✅ LULUS (epoch 3→2) |
+| 8 | 26/11/2026 | `src/figures.py` — figur asli vs sampling | Mia | ✅ LULUS (koreksi stratifikasi) |
+| 9 | 26/11/2026 | `src/figures_ablation.py` — grid linear vs cosine | Mia | ✅ LULUS (2 error) |
 
 ---
 
@@ -1248,7 +1254,7 @@ Catatan keterbatasan: baris linear pada figur ini adalah sampling ulang dengan s
 
 **Pelajaran utama dari proses vibe coding.** Empat dari lima error nyata di sesi #1–#5 berakar pada satu hal: **konteks kode tidak lengkap di prompt.** LLM tidak bisa menebak nama field (`data_dir` vs `data_root`), nama kelas (`UNet` vs `DDPMUNet`), atau parameter konstruktor yang tidak diberikan. Setelah signature verbatim ditempel ke prompt, kode langsung nyambung. Sesi #6–#8 menguatkan pola itu dari sisi sebaliknya: dengan signature `Config`, `DDPM`, `DDPMUNet`, dan blok `src/evaluate.py` ditempel verbatim, ketiga sesi berjalan **tanpa satu pun error kode**. Sesi #9 lalu memberi batas atas aturan itu: prompt #1 hanya menyebut nama helper tanpa signature `generate_with_fixed_noise` dan tanpa skema checkpoint ablation, dan hasilnya dua error berurutan (`TypeError`, lalu `KeyError: 'cfg'`). Setelah traceback utuh dan isi kunci checkpoint ditempel, revisi berikutnya langsung jalan. Dua koreksi yang tetap terjadi berada di level logika, bukan sintaks — epoch ablasi diturunkan 3→2 karena batas waktu 1 jam, dan stratifikasi kelas diperbaiki karena run pertama hanya menghasilkan 4 kelas unik padahal caption mengklaim satu sampel per kelas. Keduanya dikerjakan operator dan dicatat apa adanya di log, bukan disembunyikan. Kesimpulan operasional: **tempel signature, bukan ringkasan** — dan tempel isi file yang relevan, bukan deskripsinya.
 
-**Kerjasama tim.** Job desk dibagi dua: Faqih pada prompt arsitektur + training loop (`data.py`, `diffusion.py`, `model.py`, `train.py`, `sample.py`, `plot_loss.py`), Mia pada pipeline data, dokumentasi, dan evaluasi (`evaluate.py`, `ablation.py`, `figures.py`, `figures_ablation.py`, seluruh `LOG-INTERAKSI.md`). Bukti integrasinya ada di riwayat commit (Lampiran A): 29 commit dengan dua nama penulis berbeda, file `src/*` tidak pernah diubah oleh penulis yang bukan pemiliknya, dan `checkpoints/ddpm_best.pt` hasil training Faqih dipakai apa adanya oleh ketiga skrip evaluasi.
+**Kerjasama tim.** Job desk dibagi dua (§1.5): Faqih pada prompt arsitektur + training loop (`data.py`, `diffusion.py`, `model.py`, `train.py`, `sample.py`, `plot_loss.py`, sesi #1–#5), Mia pada dokumentasi, penanganan error, dan evaluasi (`evaluate.py`, `ablation.py`, `figures.py`, `figures_ablation.py`, seluruh `LOG-INTERAKSI.md`, sesi #6–#9). Bukti integrasinya ada di riwayat commit (Lampiran A): 33 commit dengan dua nama penulis berbeda (Faqih 18, Mia 15), file `src/*` tidak pernah diubah oleh penulis yang bukan pemiliknya, dan `checkpoints/ddpm_best.pt` hasil training Faqih dipakai apa adanya oleh `evaluate.py` dan `figures.py`, sementara `ablation.py` dan `figures_ablation.py` bekerja pada checkpoint ablation terpisah tanpa menyentuh checkpoint utama.
 
 **Keterbatasan.**
 
