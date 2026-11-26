@@ -1282,7 +1282,7 @@ Konsekuensinya untuk penulisan: angka MMD/W1 sesi #7 (dihitung pada batch besar)
 
 **Pelajaran utama dari proses vibe coding.** Empat dari lima error nyata di sesi #1–#5 berakar pada satu hal: **konteks kode tidak lengkap di prompt.** LLM tidak bisa menebak nama field (`data_dir` vs `data_root`), nama kelas (`UNet` vs `DDPMUNet`), atau parameter konstruktor yang tidak diberikan. Setelah signature verbatim ditempel ke prompt, kode langsung nyambung. Sesi #6–#8 menguatkan pola itu dari sisi sebaliknya: dengan signature `Config`, `DDPM`, `DDPMUNet`, dan blok `src/evaluate.py` ditempel verbatim, ketiga sesi berjalan **tanpa satu pun error kode**. Sesi #9 lalu memberi batas atas aturan itu: prompt #1 hanya menyebut nama helper tanpa signature `generate_with_fixed_noise` dan tanpa skema checkpoint ablation, dan hasilnya dua error berurutan (`TypeError`, lalu `KeyError: 'cfg'`). Setelah traceback utuh dan isi kunci checkpoint ditempel, revisi berikutnya langsung jalan. Dua koreksi yang tetap terjadi berada di level logika, bukan sintaks — epoch ablasi diturunkan 3→2 karena batas waktu 1 jam, dan stratifikasi kelas diperbaiki karena run pertama hanya menghasilkan 4 kelas unik padahal caption mengklaim satu sampel per kelas. Keduanya dikerjakan operator dan dicatat apa adanya di log, bukan disembunyikan. Kesimpulan operasional: **tempel signature, bukan ringkasan** — dan tempel isi file yang relevan, bukan deskripsinya.
 
-**Kerjasama tim.** Job desk dibagi dua (§1.5): Faqih pada prompt arsitektur + training loop (`data.py`, `diffusion.py`, `model.py`, `train.py`, `sample.py`, `plot_loss.py`, sesi #1–#5), Mia pada dokumentasi, penanganan error, dan evaluasi (`evaluate.py`, `ablation.py`, `figures.py`, `figures_ablation.py`, seluruh `LOG-INTERAKSI.md`, sesi #6–#9). Bukti integrasinya ada di riwayat commit (Lampiran A): 33 commit sampai commit fitur terakhir `701b757`, dengan dua nama penulis berbeda (Faqih 18, Mia 15), file `src/*` tidak pernah diubah oleh penulis yang bukan pemiliknya, dan `checkpoints/ddpm_best.pt` hasil training Faqih dipakai apa adanya oleh `evaluate.py` dan `figures.py`, sementara `ablation.py` dan `figures_ablation.py` bekerja pada checkpoint ablation terpisah tanpa menyentuh checkpoint utama.
+**Kerjasama tim.** Job desk dibagi dua (§1.5): Faqih pada prompt arsitektur + training loop (`data.py`, `diffusion.py`, `model.py`, `train.py`, `sample.py`, `plot_loss.py`, sesi #1–#5), Mia pada dokumentasi, penanganan error, dan evaluasi (`evaluate.py`, `ablation.py`, `figures.py`, `figures_ablation.py`, seluruh `LOG-INTERAKSI.md`, sesi #6–#9). Bukti integrasinya ada di riwayat commit (Lampiran A): 37 commit sampai commit terakhir `a3bc39b`, dengan dua nama penulis berbeda (Faqih 18, Mia 19), file `src/*` tidak pernah diubah oleh penulis yang bukan pemiliknya, dan `checkpoints/ddpm_best.pt` hasil training Faqih dipakai apa adanya oleh `evaluate.py` dan `figures.py`, sementara `ablation.py` dan `figures_ablation.py` bekerja pada checkpoint ablation terpisah tanpa menyentuh checkpoint utama.
 
 **Keterbatasan.**
 
@@ -1348,9 +1348,14 @@ Tautan share tiap sesi tercantum di kepala entri Bab 2. Selain tautan, percakapa
 Hasil `git log --pretty=format:"%h | %an | %ad | %s" --date=short`:
 
 ```
+a3bc39b | Mia Rosiana Santoso | 2026-11-26 | verifikasi: batch N=6 vs N=128 tidak bit-exact, grid reproducible
+1c0c6c0 | Mia Rosiana Santoso | 2026-11-26 | docs(readme): fase 5-7, struktur src dan cara menjalankan modul evaluasi
+ed2ca6d | Mia Rosiana Santoso | 2026-11-26 | docs(laporan): nomori 6 gambar + Daftar Gambar, verifikasi tautan, commit A
 73dc53d | Mia Rosiana Santoso | 2026-11-26 | docs(laporan): job desk §1.5 sesuai operator sesi + daftar isi 1-9
 4cd2e73 | Mia Rosiana Santoso | 2026-11-26 | docs(laporan): Sesi #9 + subbab 3.6 grid schedule, lampiran kode & commit
 701b757 | Mia Rosiana Santoso | 2026-11-26 | Sesi #9: figur grid perbandingan schedule linear vs cosine
+124d988 | Mia Rosiana Santoso | 2026-11-26 | docs: selaraskan Bab 3 (3.6 pembahasan, 3.7 reproduksi, 3.8 bukti chat) + ekspor percakapan sesi 6-8
+1304ae8 | Mia Rosiana Santoso | 2026-11-26 | docs: laporan + lampiran memuat sesi 6-8 (Bab 2 log, Bab 3 hasil, kode, riwayat commit)
 fd6e69f | Mia Rosiana Santoso | 2026-11-26 | docs(log): daftar isi sesi 6-8 + nama operator Mia
 dbc8e85 | Mia Rosiana Santoso | 2026-11-26 | docs(log): entri Sesi #8 (figur real vs generated) + tautan share
 7d5be17 | Mia Rosiana Santoso | 2026-11-26 | sesi 8: figur real_vs_generated.png (2x6, 6 kelas unik)

@@ -1,6 +1,11 @@
+a3bc39b | Mia Rosiana Santoso | 2026-11-26 | verifikasi: batch N=6 vs N=128 tidak bit-exact, grid reproducible
+1c0c6c0 | Mia Rosiana Santoso | 2026-11-26 | docs(readme): fase 5-7, struktur src dan cara menjalankan modul evaluasi
+ed2ca6d | Mia Rosiana Santoso | 2026-11-26 | docs(laporan): nomori 6 gambar + Daftar Gambar, verifikasi tautan, commit A
 73dc53d | Mia Rosiana Santoso | 2026-11-26 | docs(laporan): job desk §1.5 sesuai operator sesi + daftar isi 1-9
 4cd2e73 | Mia Rosiana Santoso | 2026-11-26 | docs(laporan): Sesi #9 + subbab 3.6 grid schedule, lampiran kode & commit
 701b757 | Mia Rosiana Santoso | 2026-11-26 | Sesi #9: figur grid perbandingan schedule linear vs cosine
+124d988 | Mia Rosiana Santoso | 2026-11-26 | docs: selaraskan Bab 3 (3.6 pembahasan, 3.7 reproduksi, 3.8 bukti chat) + ekspor percakapan sesi 6-8
+1304ae8 | Mia Rosiana Santoso | 2026-11-26 | docs: laporan + lampiran memuat sesi 6-8 (Bab 2 log, Bab 3 hasil, kode, riwayat commit)
 fd6e69f | Mia Rosiana Santoso | 2026-11-26 | docs(log): daftar isi sesi 6-8 + nama operator Mia
 dbc8e85 | Mia Rosiana Santoso | 2026-11-26 | docs(log): entri Sesi #8 (figur real vs generated) + tautan share
 7d5be17 | Mia Rosiana Santoso | 2026-11-26 | sesi 8: figur real_vs_generated.png (2x6, 6 kelas unik)
