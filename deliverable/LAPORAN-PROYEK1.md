@@ -12,6 +12,19 @@
 
 ---
 
+## DAFTAR GAMBAR
+
+| No. | Gambar | Letak |
+|---|---|---|
+| 1 | Kurva loss training 25 epoch | §3.1 |
+| 2 | Progres sampling epoch 1–25 dengan noise awal identik | §3.2 |
+| 3 | Panel evaluasi kuantitatif (grid sampel, histogram intensitas, histogram Sobel) | §3.3 |
+| 4 | Kurva loss ablasi noise schedule linear vs cosine | §3.4 |
+| 5 | Perbandingan kualitatif data asli vs hasil sampling | §3.5 |
+| 6 | Grid sampel linear vs cosine dengan MMD per baris | §3.6 |
+
+---
+
 ## BAB 1 — PENDAHULUAN & ARSITEKTUR
 
 ### 1.1 Latar Belakang
@@ -991,7 +1004,7 @@ Klaim Gemini bahwa 6 sampel pertama identik pixel-for-pixel dengan batch N=128 *
 
 Caption yang disarankan Gemini (dikutip apa adanya, sudah sesuai setelah perbaikan stratifikasi):
 
-> Gambar X. Perbandingan kualitatif antara sampel data asli test set Fashion-MNIST (baris atas, dipilih terstratifikasi satu sampel per kelas menggunakan seed 42) dan enam sampel pertama yang dihasilkan model Mini DDPM pada epoch 24 (T=1000, fixed seed 1234, tanpa seleksi pasca-sampling) pada baris bawah. Karena model dilatih secara unconditional, gambar pada baris bawah tidak memiliki label kelas dan tidak berpasangan secara kolom dengan gambar asli di atasnya.
+> Gambar 5. Perbandingan kualitatif antara sampel data asli test set Fashion-MNIST (baris atas, dipilih terstratifikasi satu sampel per kelas menggunakan seed 42) dan enam sampel pertama yang dihasilkan model Mini DDPM pada epoch 24 (T=1000, fixed seed 1234, tanpa seleksi pasca-sampling) pada baris bawah. Karena model dilatih secara unconditional, gambar pada baris bawah tidak memiliki label kelas dan tidak berpasangan secara kolom dengan gambar asli di atasnya.
 
 Satu hal yang tidak bisa diklaim dari figur ini: kualitas baris bawah. Sampel tampak lebih blur dan kontrasnya lebih rendah dibanding data asli — itu konsisten dengan loss 0,04297 dan tidak boleh ditulis sebagai bukti model "berhasil" tanpa metrik sesi 6 (RBF-MMD 0,038898; Pixel W1 0,101793; Sobel Grad W1 0,042321).
 
@@ -1157,11 +1170,15 @@ Total ±35 menit. Loss turun **74,4%** dari epoch 1 ke epoch 25, lalu mendatar d
 
 ![Kurva loss training](../report/figures/loss_curve.png)
 
+**Gambar 1.** Kurva loss training 25 epoch (MSE prediksi noise). Loss turun dari 0,16831 di epoch 1 ke 0,04297 di epoch 24 (terbaik), lalu mendatar di 0,04307 pada epoch 25.
+
 Penurunan tajam terjadi di epoch 1→2 (0,168 → 0,076): model cepat menangkap struktur kasar noise. Setelah epoch 5 penurunan melambat dan mulai *plateau* di epoch 17–25 — tanda kapasitas model dan jumlah epoch sudah mendekati batas untuk konfigurasi ini.
 
 ### 3.2 Kualitas Sampel
 
 ![Progres sampling epoch 1 sampai 25 dengan fixed noise](../report/figures/progression_epochs_1_to_25.png)
+
+**Gambar 2.** Progres sampling epoch 1–25 dengan noise awal identik (`torch.manual_seed(1234)` di-reset sebelum setiap `p_sample_loop`), sehingga perbedaan antar baris hanya berasal dari model.
 
 Grid di atas dibuat dengan **fixed noise** — `torch.manual_seed(1234)` di-reset sebelum setiap `p_sample_loop`, sehingga `x_T` (noise awal) identik di semua baris. Perbandingan antar epoch jadi *apple-to-apple*: perbedaan yang terlihat murni karena model membaik, bukan karena noise awalnya berbeda.
 
@@ -1187,6 +1204,8 @@ Konfigurasi run: checkpoint `checkpoints/ddpm_best.pt` (epoch 24, loss 0,04297),
 
 ![Metrik evaluasi: grid sampel, histogram intensitas, histogram gradien Sobel](../report/figures/evaluation_metrics.png)
 
+**Gambar 3.** Panel evaluasi kuantitatif sesi #6: grid sampel 4×4, histogram intensitas piksel, dan histogram magnitudo gradien Sobel, masing-masing membandingkan Real vs Generated dengan lantai Real vs Real.
+
 Pembacaan: dua paruhan data asli hampir tidak terbedakan (MMD 0,007; W1 piksel 0,008), sehingga floor-nya rendah dan layak dipakai sebagai pembanding. Sampel model masih 5–13× di atas floor, dengan jarak terbesar pada intensitas piksel. Panel histogram menjelaskan sumbernya: sampel generated menumpuk di intensitas mendekati 0 (latar hitam) jauh lebih tajam daripada data asli, artinya model cenderung menghasilkan gambar berkontras rendah dengan area gelap berlebih. Gradien Sobel relatif lebih dekat (8,7×) karena kedua distribusi sama-sama didominasi tepi lemah.
 
 Kesimpulan yang bisa ditulis: model **belum** mencapai kualitas distribusi data asli, dan angka ini menjadi baseline kuantitatif — bukan penilaian "sudah bagus" hanya karena loss training rendah.
@@ -1201,6 +1220,8 @@ Field `beta_schedule = "linear"` di `src/config.py` sebelumnya tidak dibaca file
 | Cosine | 793.953 | 0,25580 | 0,13699 | 845,84 s | 1691,67 s |
 
 ![Perbandingan kurva loss linear vs cosine](../report/figures/ablation_noise_schedule.png)
+
+**Gambar 4.** Kurva loss dua varian noise schedule (linear vs cosine) pada anggaran 2 epoch dan subset 15.000 gambar; kedua varian memakai seed dan urutan data identik.
 
 Pada dua epoch ini linear memberi loss lebih rendah dan penurunan yang lebih dalam. Cosine tidak lebih buruk secara laju relatif, tetapi level loss-nya konsisten lebih tinggi di kedua epoch — bukan karena "cosine jelek", melainkan karena schedule cosine mempertahankan ᾱ_t lebih tinggi di timestep awal sehingga MSE prediksi noise bergerak di skala berbeda. Dua epoch jauh dari konvergen (model utama butuh 24 epoch untuk mencapai 0,043), jadi yang boleh ditulis hanya: pada anggaran 2 epoch dan subset 15.000 gambar, linear lebih rendah loss-nya, dan perbandingan ini belum menjawab kualitas sampel.
 
@@ -1220,7 +1241,7 @@ Satu koreksi yang tercatat jujur: kode pertama Gemini menghasilkan hanya **4 kel
 
 Caption yang dipakai:
 
-> Gambar X. Perbandingan kualitatif antara sampel data asli test set Fashion-MNIST (baris atas, dipilih terstratifikasi satu sampel per kelas menggunakan seed 42) dan enam sampel pertama yang dihasilkan model Mini DDPM pada epoch 24 (T=1000, fixed seed 1234, tanpa seleksi pasca-sampling) pada baris bawah. Karena model dilatih secara unconditional, gambar pada baris bawah tidak memiliki label kelas dan tidak berpasangan secara kolom dengan gambar asli di atasnya.
+> Gambar 5. Perbandingan kualitatif antara sampel data asli test set Fashion-MNIST (baris atas, dipilih terstratifikasi satu sampel per kelas menggunakan seed 42) dan enam sampel pertama yang dihasilkan model Mini DDPM pada epoch 24 (T=1000, fixed seed 1234, tanpa seleksi pasca-sampling) pada baris bawah. Karena model dilatih secara unconditional, gambar pada baris bawah tidak memiliki label kelas dan tidak berpasangan secara kolom dengan gambar asli di atasnya.
 
 Yang tidak boleh diklaim dari figur ini: kualitas baris bawah. Sampel tampak lebih blur dan kontrasnya lebih rendah dibanding data asli — konsisten dengan angka sesi #6 (W1 piksel 12,6× di atas floor) dan tidak boleh ditulis sebagai bukti model "berhasil".
 
@@ -1238,7 +1259,7 @@ Pembacaan yang jujur: pada dua epoch training dan enam sampel ini, baris cosine 
 
 Caption yang dipakai:
 
-> Gambar X. Sampel enam gambar dari dua model DDPM mini yang identik kecuali noise schedule-nya (baris atas linear, baris bawah cosine), keduanya dengan fixed seed 1234 dan T=1000. Label baris mencantumkan RBF-MMD terhadap test set. Karena kedua model dilatih unconditional dan hanya berbeda pada schedule, perbedaan visual antar baris dapat diatribusikan ke schedule, tetapi jumlah sampel kecil sehingga figur ini bersifat ilustratif.
+> Gambar 6. Sampel enam gambar dari dua model DDPM mini yang identik kecuali noise schedule-nya (baris atas linear, baris bawah cosine), keduanya dengan fixed seed 1234 dan T=1000. Label baris mencantumkan RBF-MMD terhadap test set. Karena kedua model dilatih unconditional dan hanya berbeda pada schedule, perbedaan visual antar baris dapat diatribusikan ke schedule, tetapi jumlah sampel kecil sehingga figur ini bersifat ilustratif.
 
 Catatan keterbatasan: baris linear pada figur ini adalah sampling ulang dengan seed 1234, bukan tensor yang dipakai saat evaluasi sesi #6/#7 (tensor itu tidak disimpan). Karena `DDPMUNet` memakai GroupNorm dan seed tetap, hasilnya seharusnya sama, tetapi kesamaan *pixel-for-pixel* dengan run evaluasi tidak diverifikasi di sesi ini.
 
@@ -1254,7 +1275,7 @@ Catatan keterbatasan: baris linear pada figur ini adalah sampling ulang dengan s
 
 **Pelajaran utama dari proses vibe coding.** Empat dari lima error nyata di sesi #1–#5 berakar pada satu hal: **konteks kode tidak lengkap di prompt.** LLM tidak bisa menebak nama field (`data_dir` vs `data_root`), nama kelas (`UNet` vs `DDPMUNet`), atau parameter konstruktor yang tidak diberikan. Setelah signature verbatim ditempel ke prompt, kode langsung nyambung. Sesi #6–#8 menguatkan pola itu dari sisi sebaliknya: dengan signature `Config`, `DDPM`, `DDPMUNet`, dan blok `src/evaluate.py` ditempel verbatim, ketiga sesi berjalan **tanpa satu pun error kode**. Sesi #9 lalu memberi batas atas aturan itu: prompt #1 hanya menyebut nama helper tanpa signature `generate_with_fixed_noise` dan tanpa skema checkpoint ablation, dan hasilnya dua error berurutan (`TypeError`, lalu `KeyError: 'cfg'`). Setelah traceback utuh dan isi kunci checkpoint ditempel, revisi berikutnya langsung jalan. Dua koreksi yang tetap terjadi berada di level logika, bukan sintaks — epoch ablasi diturunkan 3→2 karena batas waktu 1 jam, dan stratifikasi kelas diperbaiki karena run pertama hanya menghasilkan 4 kelas unik padahal caption mengklaim satu sampel per kelas. Keduanya dikerjakan operator dan dicatat apa adanya di log, bukan disembunyikan. Kesimpulan operasional: **tempel signature, bukan ringkasan** — dan tempel isi file yang relevan, bukan deskripsinya.
 
-**Kerjasama tim.** Job desk dibagi dua (§1.5): Faqih pada prompt arsitektur + training loop (`data.py`, `diffusion.py`, `model.py`, `train.py`, `sample.py`, `plot_loss.py`, sesi #1–#5), Mia pada dokumentasi, penanganan error, dan evaluasi (`evaluate.py`, `ablation.py`, `figures.py`, `figures_ablation.py`, seluruh `LOG-INTERAKSI.md`, sesi #6–#9). Bukti integrasinya ada di riwayat commit (Lampiran A): 33 commit dengan dua nama penulis berbeda (Faqih 18, Mia 15), file `src/*` tidak pernah diubah oleh penulis yang bukan pemiliknya, dan `checkpoints/ddpm_best.pt` hasil training Faqih dipakai apa adanya oleh `evaluate.py` dan `figures.py`, sementara `ablation.py` dan `figures_ablation.py` bekerja pada checkpoint ablation terpisah tanpa menyentuh checkpoint utama.
+**Kerjasama tim.** Job desk dibagi dua (§1.5): Faqih pada prompt arsitektur + training loop (`data.py`, `diffusion.py`, `model.py`, `train.py`, `sample.py`, `plot_loss.py`, sesi #1–#5), Mia pada dokumentasi, penanganan error, dan evaluasi (`evaluate.py`, `ablation.py`, `figures.py`, `figures_ablation.py`, seluruh `LOG-INTERAKSI.md`, sesi #6–#9). Bukti integrasinya ada di riwayat commit (Lampiran A): 33 commit sampai commit fitur terakhir `701b757`, dengan dua nama penulis berbeda (Faqih 18, Mia 15), file `src/*` tidak pernah diubah oleh penulis yang bukan pemiliknya, dan `checkpoints/ddpm_best.pt` hasil training Faqih dipakai apa adanya oleh `evaluate.py` dan `figures.py`, sementara `ablation.py` dan `figures_ablation.py` bekerja pada checkpoint ablation terpisah tanpa menyentuh checkpoint utama.
 
 **Keterbatasan.**
 
@@ -1309,13 +1330,15 @@ Di Colab GPU T4: buka `colab/jalankan_di_colab.ipynb`, jalankan sel berurutan.
 
 ### 3.9 Bukti Percakapan LLM
 
-Tautan share tiap sesi tercantum di kepala entri Bab 2. Selain tautan, percakapan sesi #6–#8 diekspor ke Markdown di `deliverable/ekspor/` (`sesi-6.md`, `sesi-7.md`, `sesi-8.md`) sesuai Panduan §1 yang menerima tautan aktif **atau** ekspor dokumen. Status tautan per 26/11/2026: sesi #6, #7, dan #9 aktif; sesi #8 mengembalikan "Link doesn't exist" sehingga ekspornya menjadi bukti utama untuk sesi tersebut. Sesi #9 tidak diekspor ke Markdown karena tautannya (`https://share.gemini.google/gKj1cVhSwtWU`) sudah diperiksa terbuka tanpa login dan memuat seluruh percakapan. Sesi #5 tidak memiliki tautan aktif karena percakapannya sudah tidak ada di riwayat Gemini — prompt dan output-nya tetap dikutip verbatim di Bab 2.
+Tautan share tiap sesi tercantum di kepala entri Bab 2. Selain tautan, percakapan sesi #6–#8 diekspor ke Markdown di `deliverable/ekspor/` (`sesi-6.md`, `sesi-7.md`, `sesi-8.md`) sesuai Panduan §1 yang menerima tautan aktif **atau** ekspor dokumen. Status tautan per 26/11/2026: sesi #6, #7, dan #9 aktif; sesi #8 mengembalikan "Link doesn't exist" sehingga ekspornya menjadi bukti utama untuk sesi tersebut. Sesi #9 tidak diekspor ke Markdown karena tautannya (`https://share.gemini.google/gKj1cVhSwtWU`) sudah diperiksa terbuka tanpa login dan memuat seluruh percakapan. Pemeriksaan ulang 26/11/2026 memakai permintaan HTTP tanpa sesi login: #6 memuat percakapan "Evaluasi Mini DDPM Fashion-MNIST CPU" (dibuat 25/11/2026), #7 mengalihkan ke `https://gemini.google.com/share/b8b450c4ba62` yang juga terbuka dan memuat prompt sesi #7, dan #9 memuat percakapan "Pembuatan Skrip Visualisasi DDPM". Sesi #5 tidak memiliki tautan aktif karena percakapannya sudah tidak ada di riwayat Gemini — prompt dan output-nya tetap dikutip verbatim di Bab 2.
 
 ## LAMPIRAN A — RIWAYAT COMMIT (BUKTI KOLABORASI)
 
 Hasil `git log --pretty=format:"%h | %an | %ad | %s" --date=short`:
 
 ```
+73dc53d | Mia Rosiana Santoso | 2026-11-26 | docs(laporan): job desk §1.5 sesuai operator sesi + daftar isi 1-9
+4cd2e73 | Mia Rosiana Santoso | 2026-11-26 | docs(laporan): Sesi #9 + subbab 3.6 grid schedule, lampiran kode & commit
 701b757 | Mia Rosiana Santoso | 2026-11-26 | Sesi #9: figur grid perbandingan schedule linear vs cosine
 fd6e69f | Mia Rosiana Santoso | 2026-11-26 | docs(log): daftar isi sesi 6-8 + nama operator Mia
 dbc8e85 | Mia Rosiana Santoso | 2026-11-26 | docs(log): entri Sesi #8 (figur real vs generated) + tautan share

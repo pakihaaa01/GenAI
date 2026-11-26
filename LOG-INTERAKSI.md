@@ -919,7 +919,7 @@ Klaim Gemini bahwa 6 sampel pertama identik pixel-for-pixel dengan batch N=128 *
 
 Caption yang disarankan Gemini (dikutip apa adanya, sudah sesuai setelah perbaikan stratifikasi):
 
-> Gambar X. Perbandingan kualitatif antara sampel data asli test set Fashion-MNIST (baris atas, dipilih terstratifikasi satu sampel per kelas menggunakan seed 42) dan enam sampel pertama yang dihasilkan model Mini DDPM pada epoch 24 (T=1000, fixed seed 1234, tanpa seleksi pasca-sampling) pada baris bawah. Karena model dilatih secara unconditional, gambar pada baris bawah tidak memiliki label kelas dan tidak berpasangan secara kolom dengan gambar asli di atasnya.
+> Gambar 5. Perbandingan kualitatif antara sampel data asli test set Fashion-MNIST (baris atas, dipilih terstratifikasi satu sampel per kelas menggunakan seed 42) dan enam sampel pertama yang dihasilkan model Mini DDPM pada epoch 24 (T=1000, fixed seed 1234, tanpa seleksi pasca-sampling) pada baris bawah. Karena model dilatih secara unconditional, gambar pada baris bawah tidak memiliki label kelas dan tidak berpasangan secara kolom dengan gambar asli di atasnya.
 
 Satu hal yang tidak bisa diklaim dari figur ini: kualitas baris bawah. Sampel tampak lebih blur dan kontrasnya lebih rendah dibanding data asli — itu konsisten dengan loss 0,04297 dan tidak boleh ditulis sebagai bukti model "berhasil" tanpa metrik sesi 6 (RBF-MMD 0,038898; Pixel W1 0,101793; Sobel Grad W1 0,042321).
 

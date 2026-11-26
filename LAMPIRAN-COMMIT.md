@@ -1,3 +1,5 @@
+73dc53d | Mia Rosiana Santoso | 2026-11-26 | docs(laporan): job desk §1.5 sesuai operator sesi + daftar isi 1-9
+4cd2e73 | Mia Rosiana Santoso | 2026-11-26 | docs(laporan): Sesi #9 + subbab 3.6 grid schedule, lampiran kode & commit
 701b757 | Mia Rosiana Santoso | 2026-11-26 | Sesi #9: figur grid perbandingan schedule linear vs cosine
 fd6e69f | Mia Rosiana Santoso | 2026-11-26 | docs(log): daftar isi sesi 6-8 + nama operator Mia
 dbc8e85 | Mia Rosiana Santoso | 2026-11-26 | docs(log): entri Sesi #8 (figur real vs generated) + tautan share
