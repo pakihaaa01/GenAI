@@ -21,7 +21,9 @@ dengan model bahasa besar, bukan dengan menyalin blok kode dari tutorial.
 | 2 | Arsitektur (`diffusion.py`, `model.py`): noise schedule dan U-Net | selesai, U-Net 793.953 parameter (`base_ch=32`) |
 | 3 | Training loop dan pencatatan metrik (`train.py`) | selesai, 25 epoch, loss 0,168 turun ke 0,043 |
 | 4 | Sampling dan grid progres antar-epoch (`sample.py`) | selesai, grid 25 epoch |
-| 5 | Kompilasi Log Interaksi dan laporan akhir | `LOG-INTERAKSI.md` terisi 5 sesi; laporan di `deliverable/` |
+| 5 | Evaluasi kuantitatif (`evaluate.py`): MMD dan Wasserstein-1 dengan lantai Real vs Real | selesai, MMD 0,038898 (5,4× floor) |
+| 6 | Ablasi noise schedule (`ablation.py`): linear vs cosine | selesai, 2 epoch per varian, artefak terisolasi di `checkpoints/ablation/` |
+| 7 | Figur dan kompilasi log serta laporan akhir | selesai, `figures.py`, `figures_ablation.py`, `LOG-INTERAKSI.md` terisi 9 sesi, laporan di `deliverable/` |
 
 Seluruh modul di dalam `src/` dibangun lewat sesi percakapan dengan Gemini. Kronologi
 lengkapnya, termasuk prompt yang dikirim, error yang benar-benar muncul di konsol, dan
@@ -40,12 +42,18 @@ MiniDDPM-FashionMNIST/
 │   ├── model.py          Fase 2, U-Net dan timestep embedding
 │   ├── train.py          Fase 3, training loop dan logging metrik
 │   ├── sample.py         Fase 4, sampling dari checkpoint
-│   └── plot_loss.py      Fase 4, kurva loss dari train_history.json
+│   ├── plot_loss.py      Fase 4, kurva loss dari train_history.json
+│   ├── evaluate.py       Fase 5, metrik MMD dan Wasserstein-1 + lantai Real vs Real
+│   ├── ablation.py       Fase 6, ablasi noise schedule linear vs cosine
+│   ├── figures.py        Fase 7, grid data asli vs hasil sampling
+│   └── figures_ablation.py  Fase 7, grid sampel linear vs cosine
 ├── colab/
 │   └── jalankan_di_colab.ipynb   notebook eksekusi pada GPU T4
 ├── logs/                 metrik training per eksperimen (JSON)
-├── report/figures/       kurva loss dan grid hasil sampling
+│   └── ablation/         riwayat loss dua varian noise schedule
+├── report/figures/       kurva loss, grid hasil sampling, figur evaluasi dan ablasi
 ├── checkpoints/          bobot model (.pt), tidak diikutsertakan ke git
+│   └── ablation/         checkpoint linear dan cosine (terpisah dari model utama)
 ├── data/                 Fashion-MNIST terunduh, tidak diikutsertakan ke git
 ├── notebooks/            notebook eksperimen bebas
 ├── LOG-INTERAKSI.md      rekam jejak percakapan dengan LLM
@@ -63,7 +71,9 @@ Peran tersebut digabung sebagai berikut.
 | Anggota | Peran gabungan | Tanggung jawab |
 |---|---|---|
 | A | Prompt Engineer & LLM Navigator, Training Loop & Hyperparameter Tuning | Menyusun strategi prompt dan urutan pembangunan modul, memandu LLM untuk `model.py`, `diffusion.py`, dan `train.py`, menjalankan eksperimen hyperparameter, mencatat metrik |
-| B | Data Pipeline & Preprocessing, Lead Documentarian & Error Handler | Menyiapkan dataset dan `data.py`, normalisasi ke rentang [-1, 1], verifikasi batch, mengompilasi `LOG-INTERAKSI.md`, menangkap error lalu merumuskan prompt perbaikan |
+| B | Data Pipeline & Preprocessing, Lead Documentarian & Error Handler | Memverifikasi pipeline data (menjalankan `data.py` sampai `STATUS: LULUS`, memeriksa shape dan rentang batch), memandu LLM untuk `evaluate.py`, `ablation.py`, `figures.py`, `figures_ablation.py`, mengompilasi `LOG-INTERAKSI.md` sesi 1–9, menangkap error lalu merumuskan prompt perbaikan |
+
+Catatan pembagian: judul peran *Data Pipeline* ada di anggota B, tetapi kode `src/data.py` dihasilkan pada sesi 1–2 dengan operator A. Yang dapat diverifikasi dari repo adalah operator tiap sesi dan penulis tiap commit (lihat `LAMPIRAN-COMMIT.md`), dan laporan mencatatnya apa adanya.
 
 Penggabungan ini beralasan. Peran yang memandu arsitektur membutuhkan umpan balik cepat
 dari hasil training, sehingga wajar disatukan dengan pemilik training loop. Di sisi lain,
@@ -147,6 +157,16 @@ python src/train.py
 # 5. Fase 4, sampling dan kurva loss
 python src/sample.py
 python src/plot_loss.py
+
+# 6. Fase 5, evaluasi kuantitatif (butuh checkpoints/ddpm_best.pt, sekitar 53 menit di CPU)
+python src/evaluate.py
+
+# 7. Fase 6, ablasi noise schedule (sekitar 30 menit per varian di CPU)
+python src/ablation.py
+
+# 8. Fase 7, figur laporan
+python src/figures.py            # -> report/figures/real_vs_generated.png
+python src/figures_ablation.py   # -> report/figures/ablation_schedule_grid.png (sekitar 208 detik)
 ```
 
 Pada Google Colab dengan GPU T4, buka `colab/jalankan_di_colab.ipynb` lalu jalankan sel
@@ -158,5 +178,5 @@ secara berurutan.
 |---|---|---|
 | Kualitas dan orisinalitas vibe coding | 30% | Prompt disusun bertahap per modul, masing-masing disertai alasan arsitektural tertulis |
 | Log Interaksi dan dokumentasi LLM | 25% | `LOG-INTERAKSI.md` disusun kronologis dari inisiasi sampai debugging, dengan tautan percakapan |
-| Fungsionalitas model dan pelatihan | 25% | Training 25 epoch selesai tanpa error; metrik tersimpan di `logs/train_history.json` dan divisualisasikan |
+| Fungsionalitas model dan pelatihan | 25% | Training 25 epoch selesai tanpa error; metrik tersimpan di `logs/train_history.json`, ditambah evaluasi kuantitatif (`evaluate.py`) dan ablasi noise schedule (`ablation.py`) yang keduanya dapat dijalankan ulang dari CPU |
 | Kerjasama tim dan manajemen integrasi | 20% | Riwayat commit per anggota, job desk tertulis, dan pembagian modul yang jelas |
