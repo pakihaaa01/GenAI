@@ -1045,6 +1045,8 @@ Interpretasi kualitatif:
 - **Epoch 5–10:** siluet mulai terbaca — bentuk memanjang (calon celana), blok persegi (calon tas).
 - **Epoch 15–25:** item Fashion-MNIST sudah dapat dikenali — pullover, trouser, sepatu, tas, gaun. Tepi masih agak lembek, wajar untuk 793 ribu parameter dan 25 epoch.
 
+Penilaian visual di atas adalah kesan kualitatif. Ukurannya ada di §3.3: sampel model masih 5,4–12,6× di atas lantai Real vs Real, jadi "sudah dapat dikenali" tidak sama dengan "sudah menyerupai distribusi data asli".
+
 ### 3.3 Evaluasi Kuantitatif (Sesi #6)
 
 Loss training 0,04297 hanya mengukur kemampuan model menebak noise, bukan kemiripan hasil sampling dengan data asli. Karena itu Sesi #6 menghasilkan `src/evaluate.py` dengan tiga metrik yang bisa dihitung di CPU tanpa bobot eksternal, masing-masing dilaporkan bersama pembanding internal **Real vs Real** (dua paruhan test set) sebagai lantai praktis.
@@ -1098,32 +1100,69 @@ Yang tidak boleh diklaim dari figur ini: kualitas baris bawah. Sampel tampak leb
 
 ### 3.6 Pembahasan
 
-**Kenapa tidak pakai metrik FID.** FID butuh *feature extractor* terlatih (InceptionV3) pada gambar 299×299 berwarna. Fashion-MNIST 28×28 grayscale harus di-*resize* dan direplikasi ke 3 channel, yang mendistorsi distribusi dan membuat angka FID tidak bermakna. Untuk proyek ini, bukti kualitas yang jujur adalah **grid progres dengan fixed noise** ditambah **kurva loss**, bukan angka FID yang menyesatkan.
+**Kenapa tidak pakai metrik FID.** FID butuh *feature extractor* terlatih (InceptionV3) pada gambar 299×299 berwarna. Fashion-MNIST 28×28 grayscale harus di-*resize* dan direplikasi ke 3 channel, yang mendistorsi distribusi dan membuat angka FID tidak bermakna. Sebagai gantinya dipakai tiga metrik yang bisa dihitung sendiri di CPU tanpa bobot eksternal — RBF-MMD, Wasserstein-1 intensitas piksel, dan Wasserstein-1 magnitudo gradien Sobel — masing-masing dibandingkan dengan **lantai Real vs Real** (dua paruhan test set) agar angkanya punya acuan.
 
-**Pelajaran utama dari proses vibe coding.** Empat dari lima error nyata di proyek ini berakar pada satu hal: **konteks kode tidak lengkap di prompt.** LLM tidak bisa menebak nama field (`data_dir` vs `data_root`), nama kelas (`UNet` vs `DDPMUNet`), atau parameter konstruktor yang tidak diberikan. Setelah signature verbatim ditempel ke prompt, kode langsung nyambung. Kesimpulan operasional: **tempel signature, bukan ringkasan** — dan tempel isi file yang relevan, bukan deskripsinya.
+**Sejauh mana model benar-benar menyerupai data asli.** Ini temuan utama sesi #6–#8, dan jawabannya: belum setara. Dua paruhan data asli nyaris tak terbedakan (MMD 0,007159; W1 piksel 0,008048; W1 Sobel 0,004876), sehingga lantainya rendah dan layak dipakai pembanding. Sampel model berada 5,4× (MMD), 12,6× (W1 piksel), dan 8,7× (W1 Sobel) di atas lantai itu. Jarak terbesar ada pada intensitas piksel, dan histogram di `evaluation_metrics.png` menunjukkan sebabnya: sampel generated menumpuk di intensitas mendekati 0 jauh lebih tajam daripada data asli, artinya model cenderung menghasilkan gambar berkontras rendah dengan area gelap berlebih. Pengamatan kualitatif di `real_vs_generated.png` konsisten — sampel lebih blur dan kontrasnya lebih rendah dibanding data asli. **Loss training 0,04297 tidak boleh dibaca sebagai bukti kualitas sampel**: loss mengukur kemampuan menebak noise, bukan kemiripan distribusi.
+
+**Ablasi noise schedule: hasilnya belum konklusif.** Pada anggaran 2 epoch dengan subset 15.000 gambar, schedule linear memberi loss lebih rendah di kedua epoch (0,08593 vs 0,13699). Cosine tidak lebih buruk secara laju relatif, tetapi level loss-nya konsisten lebih tinggi karena schedule cosine mempertahankan ᾱ_t lebih tinggi di timestep awal sehingga MSE prediksi noise bergerak di skala berbeda. Model utama butuh 24 epoch untuk mencapai 0,043, jadi perbandingan 2 epoch ini hanya menjawab "mana yang lebih cepat turun pada anggaran kecil", bukan "mana yang menghasilkan sampel lebih baik". Selisih waktu per epoch (889,65 s vs 845,84 s, ±5%) bukan efek schedule — jumlah parameter kedua varian identik 793.953 — melainkan variasi beban CPU antar-run. Temuan yang bisa diklaim dari sisi rekayasa justru bagian non-angka: `CosineDDPM` berhasil menimpa 12 buffer `DDPM` tanpa menyentuh `src/diffusion.py`, dan artefak ablation terisolasi penuh (`checkpoints/ablation/*`, `logs/ablation/*`; `checkpoints/ddpm_best.pt` tidak berubah).
+
+**Biaya sampling menentukan bentuk bukti.** Sampling 1000 langkah di CPU memakan ±25 detik per gambar: 128 gambar butuh ±53 menit (sesi #6), sedangkan figur perbandingan 6 gambar butuh 69,03 detik (sesi #8). Karena itu evaluasi distribusi dikerjakan pada N=128, sementara figur kualitatif sengaja dibatasi 6 gambar dan diposisikan sebagai ilustrasi, bukan bukti statistik. Klaim bahwa 6 sampel pertama identik *pixel-for-pixel* dengan 6 sampel pertama batch N=128 **belum diverifikasi** — membuktikannya butuh sampling N=128 ulang dan tensor hasil sesi #6 tidak disimpan.
+
+**Pelajaran utama dari proses vibe coding.** Empat dari lima error nyata di sesi #1–#5 berakar pada satu hal: **konteks kode tidak lengkap di prompt.** LLM tidak bisa menebak nama field (`data_dir` vs `data_root`), nama kelas (`UNet` vs `DDPMUNet`), atau parameter konstruktor yang tidak diberikan. Setelah signature verbatim ditempel ke prompt, kode langsung nyambung. Sesi #6–#8 menguatkan pola itu dari sisi sebaliknya: dengan signature `Config`, `DDPM`, `DDPMUNet`, dan blok `src/evaluate.py` ditempel verbatim, ketiga sesi berjalan **tanpa satu pun error kode**. Dua koreksi yang tetap terjadi berada di level logika, bukan sintaks — epoch ablasi diturunkan 3→2 karena batas waktu 1 jam, dan stratifikasi kelas diperbaiki karena run pertama hanya menghasilkan 4 kelas unik padahal caption mengklaim satu sampel per kelas. Keduanya dikerjakan operator dan dicatat apa adanya di log, bukan disembunyikan. Kesimpulan operasional: **tempel signature, bukan ringkasan** — dan tempel isi file yang relevan, bukan deskripsinya.
+
+**Kerjasama tim.** Job desk dibagi dua: Faqih pada prompt arsitektur + training loop (`data.py`, `diffusion.py`, `model.py`, `train.py`, `sample.py`, `plot_loss.py`), Mia pada pipeline data, dokumentasi, dan evaluasi (`evaluate.py`, `ablation.py`, `figures.py`, seluruh `LOG-INTERAKSI.md`). Bukti integrasinya ada di riwayat commit (Lampiran A): 29 commit dengan dua nama penulis berbeda, file `src/*` tidak pernah diubah oleh penulis yang bukan pemiliknya, dan `checkpoints/ddpm_best.pt` hasil training Faqih dipakai apa adanya oleh ketiga skrip evaluasi.
 
 **Keterbatasan.**
 
 1. Training di CPU, bukan GPU — jumlah epoch dibatasi 25. Di Colab T4, 40–50 epoch bisa ditempuh dalam beberapa menit dan kualitas sampel akan lebih tajam.
 2. Dataset subset 15.000, bukan 60.000 penuh.
-3. Arsitektur sengaja kecil (793 ribu parameter) agar bisa dilatih tanpa GPU.
-4. Tidak ada evaluasi kuantitatif terhadap *mode collapse* — untuk DDPM risiko ini kecil dibanding GAN, tapi tetap tidak diukur secara formal.
+3. Arsitektur sengaja kecil (793.953 parameter) agar bisa dilatih tanpa GPU.
+4. Tidak ada FID; metrik yang dipakai (MMD, W1) adalah pembanding internal, bukan angka yang bisa dibandingkan langsung dengan literatur.
+5. Ablasi schedule hanya 2 epoch — cukup untuk menunjukkan metode berjalan dan artefaknya terisolasi, tidak cukup untuk menyimpulkan schedule terbaik.
+6. Figur kualitatif hanya 6 sampel, dipilih tanpa seleksi pasca-sampling; model *unconditional*, sehingga baris hasil sampling tidak punya label kelas dan tidak berpasangan per kolom dengan baris data asli.
+7. Tidak ada evaluasi formal terhadap *mode collapse* — untuk DDPM risiko ini kecil dibanding GAN, tapi tetap tidak diukur.
 
 ### 3.7 Reproduksi
 
+Prasyarat: Python 3.13, `torch 2.14.0+cpu`, `torchvision 0.29.0+cpu`, `matplotlib 3.10.1`; dataset Fashion-MNIST terunduh di `data/`; checkpoint `checkpoints/ddpm_best.pt` (epoch 24, loss 0,04297).
+
 ```bash
 python -m pip install -r requirements.txt
-python src/data.py        # cek pipeline, harus cetak STATUS: LULUS
-python src/diffusion.py   # cek noise schedule
-python src/model.py       # cetak jumlah parameter
-python src/train.py       # training 25 epoch (±35 menit CPU)
-python src/sample.py      # grid progres antar-epoch
-python src/plot_loss.py   # kurva loss
+
+# 1. Cek pipeline & arsitektur (tanpa training)
+python src/data.py            # harus mencetak STATUS: LULUS
+python src/diffusion.py       # cek noise schedule
+python src/model.py           # cetak jumlah parameter (793.953)
+
+# 2. Training & figur progres (milik Faqih)
+python src/train.py           # 25 epoch, +-35 menit CPU -> checkpoints/ddpm_best.pt
+python src/sample.py          # grid progres antar-epoch
+python src/plot_loss.py       # kurva loss
+
+# 3. Evaluasi kuantitatif (sesi #6, +-53 menit CPU untuk 128 gambar)
+python src/evaluate.py        # -> report/figures/evaluation_metrics.png + angka MMD/W1
+
+# 4. Ablasi noise schedule (sesi #7, +-57 menit CPU untuk 2 varian x 2 epoch)
+python src/ablation.py        # -> report/figures/ablation_noise_schedule.png,
+                              #    logs/ablation/{linear,cosine}_history.json,
+                              #    checkpoints/ablation/{linear,cosine}/
+
+# 5. Figur perbandingan asli vs sampling (sesi #8, +-69 detik CPU)
+python src/figures.py         # -> report/figures/real_vs_generated.png
 ```
+
+Catatan reproduksibilitas:
+
+- Ketiga skrip evaluasi memakai seed tetap (data: `cfg.seed = 42`; sampling: `fixed_seed = 1234`) sehingga gambar dan angka bisa diulang di mesin lain dengan versi pustaka yang sama.
+- `src/evaluate.py` dan `src/figures.py` memuat checkpoint yang sama (`checkpoints/ddpm_best.pt`); tidak ada training ulang.
+- `src/ablation.py` menulis ke direktori terpisah dan **tidak** menimpa checkpoint utama — hasil training 25 epoch tetap utuh setelah ablasi.
+- Urutan di atas penting: langkah 3–5 butuh checkpoint dari langkah 2.
 
 Di Colab GPU T4: buka `colab/jalankan_di_colab.ipynb`, jalankan sel berurutan.
 
----
+### 3.8 Bukti Percakapan LLM
+
+Tautan share tiap sesi tercantum di kepala entri Bab 2. Selain tautan, percakapan sesi #6–#8 diekspor ke Markdown di `deliverable/ekspor/` (`sesi-6.md`, `sesi-7.md`, `sesi-8.md`) sesuai Panduan §1 yang menerima tautan aktif **atau** ekspor dokumen. Status tautan per 26/11/2026: sesi #6 dan #7 aktif; sesi #8 mengembalikan "Link doesn't exist" sehingga ekspornya menjadi bukti utama untuk sesi tersebut. Sesi #5 tidak memiliki tautan aktif karena percakapannya sudah tidak ada di riwayat Gemini — prompt dan output-nya tetap dikutip verbatim di Bab 2.
 
 ## LAMPIRAN A — RIWAYAT COMMIT (BUKTI KOLABORASI)
 

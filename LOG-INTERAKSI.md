@@ -746,7 +746,7 @@ Yang bisa diklaim sebagai temuan teknis justru bagian non-angka: `CosineDDPM` be
 
 - **Target Modul:** `src/figures.py`
 - **Operator:** Mia Rosiana Santoso
-- **Tautan Sesi Chat:** https://share.gemini.google/NhHSVgoMabeC
+- **Tautan Sesi Chat:** https://share.gemini.google/NhHSVgoMabeC — dicek 26/11/2026: tautan mengembalikan "Link doesn't exist". Cadangan: ekspor Markdown percakapan di `deliverable/ekspor/sesi-8.md`
 - **Model LLM:** Gemini
 
 ### 1. TAHAP INISIASI (Meminta Kode Awal)
