@@ -254,7 +254,7 @@ Tidak ada error pada `model.py` itu sendiri. Namun pada integrasi ke `train.py` 
 > konteks: batch 128, lr 2e-4 Adam, 25 epoch, subset 15000, T=1000, CPU. nanti saya pindah ke Colab pakai GPU T4 jadi jangan hardcode device, bikin auto-detect."
 
 **Alasan Khusus:**
-Validasi loss tetap dipakai meski targetnya acak — caranya dengan **mem-fix seed** untuk t dan ε saat evaluasi, sehingga angka val loss deterministik dan bisa dibandingkan antar-epoch. Tanpa itu, val loss berayun hanya karena sampel t berbeda. Ini penting untuk mendeteksi overfitting pada subset 15.000 dengan model 1,78 juta parameter.
+Validasi loss tetap dipakai meski targetnya acak — caranya dengan **mem-fix seed** untuk t dan ε saat evaluasi, sehingga angka val loss deterministik dan bisa dibandingkan antar-epoch. Tanpa itu, val loss berayun hanya karena sampel t berbeda. Ini penting untuk mendeteksi overfitting pada subset 15.000 dengan model 793.953 parameter.
 
 Grid progres antar-epoch memakai **initial noise yang identik** (seed di-reset tepat sebelum `p_sample_loop`). Kalau tiap epoch memakai noise awal berbeda, perbedaan hasil tidak bisa diatribusikan ke perbaikan model.
 
@@ -282,6 +282,8 @@ Sampling: `Grid progres berhasil disimpan ke: report/figures/progression_epochs_
 
 #### Error #1 — `ImportError: cannot import name 'UNet'`
 
+**Pesan Eror dari Notebook:**
+
 ```
 Traceback (most recent call last):
   File "C:\Users\ASUS\Documents\MiniDDPM-FashionMNIST\src\train.py", line 12, in <module>
@@ -308,6 +310,8 @@ Gemini mengakui asumsinya: ia memakai struktur DDPM "standar" (`UNet`, `Gaussian
 
 #### Error #2 — `AttributeError: 'Config' object has no attribute 'checkpoint_dir'`
 
+**Pesan Eror dari Notebook:**
+
 ```
 Traceback (most recent call last):
   File "C:\Users\ASUS\Documents\MiniDDPM-FashionMNIST\src\train.py", line 27, in train
@@ -325,6 +329,8 @@ Selain itu Gemini menjawab pertanyaan device: `DDPM` mewarisi `nn.Module` dan me
 **Hasil Uji:** error berikutnya, `ModuleNotFoundError: No module named 'config'`.
 
 #### Error #3 — `ModuleNotFoundError: No module named 'config'`
+
+**Pesan Eror dari Notebook:**
 
 ```
 Traceback (most recent call last):
@@ -368,6 +374,8 @@ Dengan ini: `python src/train.py` jalan (bootstrap mendaftarkan root), `python -
 
 #### Error #4 — `ModuleNotFoundError: No module named 'src'`
 
+**Pesan Eror dari Notebook:**
+
 ```
 Traceback (most recent call last):
   File "C:\Users\ASUS\Documents\MiniDDPM-FashionMNIST\src\data.py", line 12, in <module>
@@ -377,7 +385,7 @@ ModuleNotFoundError: No module named 'src'
 
 **Konteks:** setelah `data.py` diseragamkan ke `from src.config import ...`, perintah `python src/data.py` jadi gagal — karena yang masuk `sys.path` adalah `src/`, bukan root, sehingga nama `src` tidak bisa di-resolve.
 
-**Prompt Perbaikan:** dilaporkan ke Gemini bersama error #3 sebagai satu paket pertanyaan ("solusi yang jalan di dua skenario: `python src/data.py` dari root DAN import dari notebook Colab di root"). Jawabannya: bootstrap `sys.path` tidak boleh hanya ada di `train.py`/`sample.py` — setiap modul yang bisa dijalankan langsung sebagai skrip (`__main__`) juga butuh bootstrap yang sama.
+**Prompt Perbaikan ke LLM:** dilaporkan ke Gemini bersama error #3 sebagai satu paket pertanyaan ("solusi yang jalan di dua skenario: `python src/data.py` dari root DAN import dari notebook Colab di root"). Jawabannya: bootstrap `sys.path` tidak boleh hanya ada di `train.py`/`sample.py` — setiap modul yang bisa dijalankan langsung sebagai skrip (`__main__`) juga butuh bootstrap yang sama.
 
 **Analisis & Solusi Kelompok:**
 Bootstrap dipasang di **atas** `data.py`, sebelum import `src.config`. Blok `sys.path.insert` yang tadinya hanya ada di dalam `if __name__ == "__main__":` dipindah ke level modul — karena import `src.config` terjadi di level modul, jadi bootstrap harus sudah jalan sebelum baris itu dieksekusi. Kalau bootstrap ditaruh di dalam `__main__`, import di atasnya tetap gagal.
@@ -387,6 +395,26 @@ Bootstrap dipasang di **atas** `data.py`, sebelum import `src.config`. Blok `sys
 #### Catatan dependensi — `ModuleNotFoundError: No module named 'tqdm'`
 
 `train.py` mengimpor `tqdm`; paket belum terpasang di environment. Tidak dikonsultasikan ke LLM (bukan masalah kode) — diselesaikan dengan memasang `tqdm` dan menambahkannya ke `requirements.txt`. Dicatat untuk kelengkapan kronologi.
+
+### 3. TAHAP OPTIMASI (Keputusan Hyperparameter)
+
+Bagian ini merangkum keputusan optimasi yang diambil pada sesi yang sama, terpisah
+dari bagian debugging karena bukan merupakan perbaikan eror.
+
+| Keputusan | Nilai akhir | Alasan |
+|---|---|---|
+| Kapasitas U-Net | `unet_base=32` (793.953 parameter) | FLOPs Conv2d tumbuh kuadratik terhadap jumlah channel; 48/32 = 1,5 sehingga biaya komputasi ±2,25×. Pada 28×28 grayscale dengan subset 15.000, 32 channel sudah memadai menangkap siluet. |
+| Optimizer | `AdamW`, `weight_decay=1e-4` | Decoupled weight decay lebih stabil daripada L2 pada Adam biasa untuk model kecil dengan 25 epoch. |
+| Learning rate | `2e-4` tetap, tanpa scheduler | Pada 25 epoch, scheduler kosmetik; penurunan loss diamati tetap monoton. |
+| Gradient clipping | `max_norm=1.0` | Mencegah lonjakan gradien pada timestep kecil, tempat target noise mendominasi sinyal. |
+| Mixed precision | hanya aktif bila `device.type == "cuda"` | AMP tidak memberi kecepatan di CPU dan justru menambah risiko `NaN`; kode tetap siap dipindah ke Colab T4. |
+| Batch size | 128 | Benchmark pada mesin ini: batch 64 = 0,394 s/step, batch 128 = 0,640 s/step. Throughput per gambar lebih baik pada 128 meski per-step lebih lambat. |
+| EMA bobot | tidak dipakai | Dipertanyakan di prompt, diputuskan tidak diterapkan karena menambah state tambahan sementara anggaran 25 epoch di CPU belum tentu konvergen. Konsekuensinya dicatat sebagai batasan, bukan disembunyikan. |
+
+Dua hal yang dipertanyakan di prompt tetapi tidak diadopsi, dan itu keputusan sadar:
+EMA bobot dan learning-rate scheduler. Keduanya akan menambah kompleksitas tanpa
+jaminan perbaikan pada anggaran epoch yang tersedia.
+
 
 ---
 
@@ -740,6 +768,29 @@ Alasannya bukan "cosine jelek", melainkan perbedaan skala target: schedule cosin
 Angka waktu: linear 889,65 s/epoch vs cosine 845,84 s/epoch (cosine ±5% lebih cepat). Selisih ini bukan efek schedule, melainkan variasi beban CPU antar-run — kedua varian memakai arsitektur dan jumlah parameter identik (793.953), jadi tidak ada alasan komputasional cosine lebih murah.
 
 Yang bisa diklaim sebagai temuan teknis justru bagian non-angka: `CosineDDPM` berhasil menimpa 12 buffer `DDPM` tanpa menyentuh `src/diffusion.py`, dan artefak ablation benar-benar terisolasi (`checkpoints/ablation/*`, `logs/ablation/*`, mtime `checkpoints/ddpm_best.pt` tidak berubah).
+
+### 4. TAHAP OPTIMASI (Anggaran Waktu dan Cakupan Ablasi)
+
+Ablasi ini sendiri adalah bentuk optimasi: ia mempertanggungjawabkan pilihan
+`beta_schedule` yang sebelumnya tidak pernah diuji. Tiga keputusan anggaran diambil
+secara sadar.
+
+Pertama, epoch diturunkan dari 3 menjadi 2 per varian. Satu epoch terukur 915,48 detik
+pada run pertama, sehingga 6 epoch akan melewati batas satu jam sesi. Pemotongan ini
+dicatat di kode sebagai konstanta `ABLATION_EPOCHS = 2` beserta komentarnya, bukan
+dilakukan diam-diam.
+
+Kedua, cakupan dibatasi pada noise schedule saja, bukan kapasitas model. Membandingkan
+`unet_base` 32 versus 48 akan menggandakan jumlah run dan waktu, sementara pertanyaan
+yang paling mendesak adalah apakah `beta_schedule="linear"` di `config.py` punya dasar.
+Pemeriksaan repo menunjukkan field itu tidak dibaca file mana pun, sehingga pilihan
+schedule sebelumnya tidak punya dasar eksperimen sama sekali.
+
+Ketiga, hasil dua epoch tidak diulang ke tiga epoch meskipun waktu tersisa. Menambah
+epoch pada satu varian saja akan membuat perbandingan tidak setara, dan mengulang
+keduanya akan menghabiskan ±92 menit untuk tren yang sudah terbaca. Batas ini ditulis
+terbuka di Bab 3, termasuk peringatan bahwa dua epoch jauh dari konvergen.
+
 
 ---
 
