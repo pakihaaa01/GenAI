@@ -991,6 +991,123 @@ Satu hal yang tidak bisa diklaim dari figur ini: kualitas baris bawah. Sampel ta
 
 ---
 
+### Sesi #9 — 26/11/2026
+
+- **Target modul:** `src/figures_ablation.py` (baru)
+- **Operator:** Mia Rosiana Santoso
+- **Tautan sesi chat:** https://share.gemini.google/gKj1cVhSwtWU — diperiksa 26/11/2026, terbuka tanpa login dan isi percakapan tampil utuh (judul "Pembuatan Skrip Visualisasi DDPM")
+- **Model LLM:** Gemini
+
+**Alasan sesi ini dibuka:** `report/figures/` sudah punya `ablation_noise_schedule.png` (kurva loss dua schedule, sesi #7) tetapi belum ada figur yang menampilkan *sampel* kedua schedule berdampingan. Tanpa figur itu, pembaca hanya bisa percaya angka MMD/W1 dan tidak bisa menilai sendiri bagaimana perbedaan schedule terlihat di gambar.
+
+**Prompt #1 (verbatim):**
+
+> halo, aku lagi ngerjain proyek mata kuliah CAK4KBB3 (topik generative model) dan bagianku bikin figur buat laporan. kodenya python + pytorch dan jalan di laptop CPU doang, jadi harus ringan.
+>
+> konteks: aku udah latih dua DDPM mini di Fashion-MNIST dengan satu perbedaan, yaitu noise schedule-nya, satu linear satu cosine. checkpoint-nya udah ada di checkpoints/ablation/linear dan checkpoints/ablation/cosine. di repo udah ada helper load_checkpoint_and_models() di src/evaluate.py yang balikin (cfg, model, diffusion, optimizer) dari file .pt, dan generate_with_fixed_noise() di src/sample.py buat sampling deterministik pakai seed tetap. hasil kuantitatifnya: linear MMD 0,18872 dan pixel W1 0,08593; cosine MMD 0,25580 dan pixel W1 0,13699 (makin kecil makin bagus).
+>
+> yang aku butuh: satu skrip baru src/figures_ablation.py yang bikin PNG 2 baris x 6 kolom. baris atas sampel dari model linear, baris bawah dari cosine, seed-nya sama biar perbandingannya apple to apple, grayscale, tiap baris ada judul di kiri atas yang nyebut schedule + nilai MMD-nya, disimpan ke report/figures/ablation_schedule_grid.png. jangan ubah file src yang udah ada, cukup file baru, dan ikutin gaya kode yang udah ada (matplotlib backend Agg, ada bootstrap sys.path di bagian atas, print ringkasan waktu eksekusi di akhir).
+>
+> sebelum kasih kodenya, jelasin dulu singkat: (1) kenapa perbandingan visual kayak gini masih perlu walaupun udah ada MMD dan W1, (2) jebakan apa yang harus aku hati-hatiin waktu sampling dua model beda buat dibandingin, misal soal seed, normalisasi, atau jumlah step. kasih kodenya lengkap setelah itu.
+
+**Prompt #2 (verbatim, dikirim sebelum kode pertama dijalankan):**
+
+> oke kodenya masuk akal, tapi ada satu hal yang kelewat.
+>
+> load_checkpoint_and_models() di src/evaluate.py itu bikin objek DDPM biasa. DDPM di src/diffusion.py schedule-nya di-hardcode torch.linspace (linear), field beta_schedule di Config nggak dibaca di situ. jadi kalau aku pakai fungsi itu buat checkpoint cosine, yang dipakai buat decode tetap schedule linear, dan gambarnya bukan representasi model cosine.
+>
+> di src/ablation.py aku udah punya subclass CosineDDPM(DDPM) yang ngitung ulang 12 buffer pakai rumus Nichol & Dhariwal (s = 0.008), dan itu yang dipakai waktu training varian cosine. jadi buat baris cosine aku perlu bangun ulang DDPMUNet + CosineDDPM dari file .pt-nya, bukan lewat load_checkpoint_and_models.
+>
+> tolong revisi skripnya: satu helper buat linear (boleh tetap pakai load_checkpoint_and_models), satu buat cosine yang load model_state_dict ke DDPMUNet lalu dipasangkan CosineDDPM dari src.ablation. tetap satu file src/figures_ablation.py, jangan sentuh src/ lain. sekalian jelasin singkat kenapa kalau schedule-nya salah, hasil sampling bisa beda
+
+Koreksi ini perlu karena `src/diffusion.py` (milik rekan tim, sudah diverifikasi) tidak boleh diubah — perbaikan harus di sisi skrip baru.
+
+**Output model:** `src/figures_ablation.py` (±280 baris): bootstrap `PROJECT_ROOT`, `_find_checkpoint_file()`, `_run_deterministic_sampling()`, `_sample_linear_checkpoint()`, `_sample_cosine_checkpoint()`, `_render_grid()`, `main()`; `matplotlib.use("Agg")`, `NUM_SAMPLES = 6`, `FIXED_SEED = 1234`.
+
+**Error #1 — `TypeError` pada `generate_with_fixed_noise`.** Kode revisi dijalankan apa adanya di lingkungan `.venv` (Python 3.13, `torch 2.15.0+cpu`, `torchvision 0.29.2+cpu`, `matplotlib 3.11.2`). Traceback utuh dari konsol:
+
+```
+Traceback (most recent call last):
+  File "C:\Users\rosiana\Documents\GenAI\src\figures_ablation.py", line 310, in <module>
+    main()
+  File "C:\Users\rosiana\Documents\GenAI\src\figures_ablation.py", line 277, in main
+    linear_samples = _sample_linear_checkpoint(
+  File "C:\Users\rosiana\Documents\GenAI\src\figures_ablation.py", line 182, in _sample_linear_checkpoint
+    return _run_deterministic_sampling(
+  File "C:\Users\rosiana\Documents\GenAI\src\figures_ablation.py", line 155, in _run_deterministic_sampling
+    samples = generate_with_fixed_noise(
+  File "C:\Users\rosiana\Documents\GenAI\.venv\Lib\site-packages\torch\utils\_contextlib.py", line 158, in no_grad
+    return func(*args, **kwargs)
+TypeError: generate_with_fixed_noise() got an unexpected keyword argument 'cfg'
+```
+
+**Prompt #3 (verbatim, 918 byte):**
+
+> traceback-nya muncul pas aku jalanin skripnya:
+>
+> TypeError: generate_with_fixed_noise() got an unexpected keyword argument 'cfg'
+>
+> aku cek src/sample.py, signature aslinya generate_with_fixed_noise(model, diffusion, num_samples, img_size, channels, device, fixed_seed=1234). jadi nggak ada parameter cfg dan nggak ada seed, dua-duanya bikin TypeError.
+>
+> satu lagi yang bakal kena: CosineDDPM di src/ablation.py konstruktornya CosineDDPM(timesteps=1000, s=0.008, clip_denoised=True), jadi dia nggak nerima model, beta_start, beta_end. artinya _build_cosine_diffusion() juga salah.
+>
+> tolong sesuaikan skripnya ke signature yang beneran ada di repo, dan tolong buang fallback try/except TypeError-nya, biar kalau ada yang salah langsung kelihatan errornya, bukan ketutup. img_size sama channels tinggal ambil dari cfg.image_size dan cfg.channels. DDPMUNet di src/model.py juga cuma butuh in_channels, base_ch, time_emb_dim.
+
+**Sumber perbaikan: Gemini.** Catatan: yang dikirim ke Gemini hanya baris error di atas, bukan traceback berbaris-baris — traceback lengkap tercatat di sini dari konsol lokal.
+
+**Error #2 — `KeyError: 'cfg'`.** Baris linear selesai (±7 menit sampling CPU), lalu gagal saat masuk cosine:
+
+```
+Traceback (most recent call last):
+  File "C:\Users\rosiana\Documents\GenAI\src\figures_ablation.py", line 280, in <module>
+    main()
+  File "C:\Users\rosiana\Documents\GenAI\src\figures_ablation.py", line 256, in main
+    cosine_samples = _sample_cosine_checkpoint(
+        ckpt_path=cosine_ckpt,
+    ...<2 lines>...
+        fixed_seed=FIXED_SEED,
+    )
+  File "C:\Users\rosiana\Documents\GenAI\src\figures_ablation.py", line 171, in _sample_cosine_checkpoint
+    cfg = ckpt["cfg"]
+          ~~~~^^^^^^^
+KeyError: 'cfg'
+```
+
+Isi checkpoint diperiksa langsung dengan `torch.load`: kuncinya hanya `['epoch', 'variant', 'beta_schedule', 'model_state_dict', 'optimizer_state_dict', 'loss']` — checkpoint ablation **tidak** menyimpan `config`, berbeda dari `checkpoints/ddpm_best.pt`.
+
+**Prompt #4 (verbatim):**
+
+> masih error, sekarang di bagian cosine:
+>
+> KeyError: 'cfg'
+>
+> ternyata checkpoint ablation nggak nyimpen config sama sekali. aku cek isinya cuma ini:
+> ['epoch', 'variant', 'beta_schedule', 'model_state_dict', 'optimizer_state_dict', 'loss']
+>
+> jadi ckpt["cfg"] nggak akan pernah ada, dan cfg.base_ch / cfg.time_emb_dim juga nggak ada di Config punyaku. nama field yang beneran di src/config.py: channels, image_size, unet_base, time_embed_dim, timesteps, beta_start, beta_end.
+>
+> buat varian cosine, metadata-nya ada di logs/ablation/cosine_history.json, isinya antara lain variant, beta_schedule, seed, timesteps, unet_base. jadi plis baca dari situ atau fallback ke Config() default, jangan pakai key yang nggak ada.
+>
+> catatan: baris linear sudah jalan sampai selesai (sampling 6 gambar 1000 langkah di CPU sekitar 7 menit), yang gagal baru pas masuk cosine.
+
+**Sumber perbaikan: Gemini** — metadata dibaca dari `logs/ablation/cosine_history.json` dengan fallback `Config()`, lalu dipetakan ke `DDPMUNet(in_channels=channels, base_ch=unet_base, time_emb_dim=time_embed_dim)` dan `CosineDDPM(timesteps=timesteps, s=0.008, clip_denoised=True)`.
+
+**Hasil uji (run terakhir, kode Gemini apa adanya):**
+
+```
+=== Ringkasan Waktu Eksekusi (src/figures_ablation.py) ===
+Checkpoint Linear : C:\Users\rosiana\Documents\GenAI\checkpoints\ablation\linear\ddpm_best.pt
+Checkpoint Cosine : C:\Users\rosiana\Documents\GenAI\checkpoints\ablation\cosine\ddpm_best.pt
+History Cosine    : C:\Users\rosiana\Documents\GenAI\logs\ablation\cosine_history.json
+Sampling Linear   : 123.07 s
+Sampling Cosine   : 84.61 s
+Render & Simpan   : 0.45 s
+Total Waktu       : 208.14 s
+Output PNG        : C:\Users\rosiana\Documents\GenAI\report\figures\ablation_schedule_grid.png
+```
+
+Exit code 0, `ablation_schedule_grid.png` 54.752 byte. Pemeriksaan visual: grid 2×6, label baris `Linear | MMD: 0.18872` dan `Cosine | MMD: 0.25580`, kedua baris berisi siluet pakaian yang bisa dikenali (bukan noise) dengan tepi lembek — konsisten dengan training 2 epoch.
+
 ### Ringkasan Pola Interaksi
 
 | Sesi | Prompt | Error nyata | Sumber perbaikan |
@@ -1003,10 +1120,13 @@ Satu hal yang tidak bisa diklaim dari figur ini: kualitas baris bawah. Sampel ta
 | 6 | 1 | 0 error kode (`FileNotFoundError` murni prasyarat: checkpoint belum ada) | — |
 | 7 | 1 | 0 error kode (run pertama dihentikan manual: proyeksi 92 menit > batas 1 jam) | operator (epoch 3→2, header dinamis) |
 | 8 | 1 | 0 error kode (label kelas duplikat: 4 dari 6 kelas unik) | operator (hapus cabang `overflow_items`, wajib 1 gambar/kelas) |
+| 9 | 1 + 3 lanjutan | 2 (`TypeError: generate_with_fixed_noise() got an unexpected keyword argument 'cfg'`, `KeyError: 'cfg'`) | Gemini (koreksi signature sampling + baca metadata checkpoint dari `logs/ablation/cosine_history.json`) |
 
 **Pelajaran utama:** LLM tidak bisa menebak isi file yang tidak diberikan. Dua dari empat error di proyek ini berakar pada satu hal yang sama — konteks kode tidak lengkap di prompt. Setelah signature verbatim ditempel, kode langsung nyambung. Kesimpulan operasional: **tempel signature, bukan ringkasan.**
 
 Sesi #6–#8 tidak menghasilkan error kode sama sekali: dengan signature dan struktur repo yang ditempel verbatim, kode Gemini langsung jalan. Dua koreksi yang tetap terjadi berada di level logika, bukan sintaks — epoch ablasi diturunkan 3→2 karena batas waktu, dan stratifikasi kelas diperbaiki karena run pertama hanya menghasilkan 4 kelas unik. Keduanya dikerjakan operator dan dicatat apa adanya, bukan disembunyikan.
+
+Sesi #9 mematahkan pola itu, dan penyebabnya informatif: kedua error (`TypeError` pada `generate_with_fixed_noise`, lalu `KeyError: 'cfg'`) muncul karena asumsi tentang isi file yang **tidak** ditempel saat prompt — signature `src/sample.py` dan skema checkpoint ablation. Ini bukan kegagalan LLM, melainkan konfirmasi aturan yang sama dari arah sebaliknya: yang tidak diberikan tidak bisa ditebak. Yang membuat sesi tetap selesai adalah traceback utuh dikirim balik apa adanya, bukan diringkas.
 
 
 ---
@@ -1098,7 +1218,25 @@ Caption yang dipakai:
 
 Yang tidak boleh diklaim dari figur ini: kualitas baris bawah. Sampel tampak lebih blur dan kontrasnya lebih rendah dibanding data asli — konsisten dengan angka sesi #6 (W1 piksel 12,6× di atas floor) dan tidak boleh ditulis sebagai bukti model "berhasil".
 
-### 3.6 Pembahasan
+### 3.6 Grid Perbandingan Schedule Linear vs Cosine (Sesi #9)
+
+![Grid sampel linear vs cosine](../report/figures/ablation_schedule_grid.png)
+
+Baris atas: enam sampel dari checkpoint `checkpoints/ablation/linear/ddpm_best.pt`; baris bawah: enam sampel dari `checkpoints/ablation/cosine/ddpm_best.pt`. Keduanya memakai `fixed_seed = 1234` dan 1000 langkah sampling, sehingga perbedaan yang terlihat hanya berasal dari noise schedule, bukan dari noise awal. Label baris memuat nilai MMD masing-masing varian (linear 0,18872; cosine 0,25580 — makin kecil makin baik).
+
+Cara kedua baris dibangkitkan sengaja dibedakan: varian linear dimuat lewat `load_checkpoint_and_models()` seperti skrip evaluasi lain, sedangkan varian cosine **tidak** — helper itu selalu membangun `DDPM` dengan buffer `torch.linspace` (linear), karena `beta_schedule` di `Config` tidak dibaca oleh `src/diffusion.py`. Untuk cosine, `model_state_dict` dimuat ke `DDPMUNet` lalu dipasangkan dengan `CosineDDPM` dari `src/ablation.py` (rumus Nichol & Dhariwal, `s = 0.008`), dan metadatanya (`timesteps`, `unet_base`) dibaca dari `logs/ablation/cosine_history.json` karena checkpoint ablation tidak menyimpan objek `Config`. Tanpa langkah ini, baris bawah grid akan berisi hasil sampling schedule linear yang diberi label cosine — figur yang salah tanpa terlihat salah.
+
+Waktu eksekusi 208,14 detik di CPU (linear 123,07 s; cosine 84,61 s; render 0,45 s). Selisih waktu bukan efek schedule — jumlah parameter kedua varian identik 793.953 — melainkan urutan eksekusi: baris linear jalan lebih dulu saat cache model masih dingin.
+
+Pembacaan yang jujur: pada dua epoch training dan enam sampel ini, baris cosine tampak sedikit lebih tegas tepinya, **tetapi** metrik kuantitatif sesi #7 menunjukkan arah sebaliknya (MMD linear 0,18872 < cosine 0,25580; pixel W1 0,08593 < 0,13699). Enam gambar tanpa penilaian berbutir tidak cukup untuk menyimpulkan schedule mana yang lebih baik; figur ini melengkapi angka MMD/W1, bukan menggantikannya.
+
+Caption yang dipakai:
+
+> Gambar X. Sampel enam gambar dari dua model DDPM mini yang identik kecuali noise schedule-nya (baris atas linear, baris bawah cosine), keduanya dengan fixed seed 1234 dan T=1000. Label baris mencantumkan RBF-MMD terhadap test set. Karena kedua model dilatih unconditional dan hanya berbeda pada schedule, perbedaan visual antar baris dapat diatribusikan ke schedule, tetapi jumlah sampel kecil sehingga figur ini bersifat ilustratif.
+
+Catatan keterbatasan: baris linear pada figur ini adalah sampling ulang dengan seed 1234, bukan tensor yang dipakai saat evaluasi sesi #6/#7 (tensor itu tidak disimpan). Karena `DDPMUNet` memakai GroupNorm dan seed tetap, hasilnya seharusnya sama, tetapi kesamaan *pixel-for-pixel* dengan run evaluasi tidak diverifikasi di sesi ini.
+
+### 3.7 Pembahasan
 
 **Kenapa tidak pakai metrik FID.** FID butuh *feature extractor* terlatih (InceptionV3) pada gambar 299×299 berwarna. Fashion-MNIST 28×28 grayscale harus di-*resize* dan direplikasi ke 3 channel, yang mendistorsi distribusi dan membuat angka FID tidak bermakna. Sebagai gantinya dipakai tiga metrik yang bisa dihitung sendiri di CPU tanpa bobot eksternal — RBF-MMD, Wasserstein-1 intensitas piksel, dan Wasserstein-1 magnitudo gradien Sobel — masing-masing dibandingkan dengan **lantai Real vs Real** (dua paruhan test set) agar angkanya punya acuan.
 
@@ -1108,9 +1246,9 @@ Yang tidak boleh diklaim dari figur ini: kualitas baris bawah. Sampel tampak leb
 
 **Biaya sampling menentukan bentuk bukti.** Sampling 1000 langkah di CPU memakan ±25 detik per gambar: 128 gambar butuh ±53 menit (sesi #6), sedangkan figur perbandingan 6 gambar butuh 69,03 detik (sesi #8). Karena itu evaluasi distribusi dikerjakan pada N=128, sementara figur kualitatif sengaja dibatasi 6 gambar dan diposisikan sebagai ilustrasi, bukan bukti statistik. Klaim bahwa 6 sampel pertama identik *pixel-for-pixel* dengan 6 sampel pertama batch N=128 **belum diverifikasi** — membuktikannya butuh sampling N=128 ulang dan tensor hasil sesi #6 tidak disimpan.
 
-**Pelajaran utama dari proses vibe coding.** Empat dari lima error nyata di sesi #1–#5 berakar pada satu hal: **konteks kode tidak lengkap di prompt.** LLM tidak bisa menebak nama field (`data_dir` vs `data_root`), nama kelas (`UNet` vs `DDPMUNet`), atau parameter konstruktor yang tidak diberikan. Setelah signature verbatim ditempel ke prompt, kode langsung nyambung. Sesi #6–#8 menguatkan pola itu dari sisi sebaliknya: dengan signature `Config`, `DDPM`, `DDPMUNet`, dan blok `src/evaluate.py` ditempel verbatim, ketiga sesi berjalan **tanpa satu pun error kode**. Dua koreksi yang tetap terjadi berada di level logika, bukan sintaks — epoch ablasi diturunkan 3→2 karena batas waktu 1 jam, dan stratifikasi kelas diperbaiki karena run pertama hanya menghasilkan 4 kelas unik padahal caption mengklaim satu sampel per kelas. Keduanya dikerjakan operator dan dicatat apa adanya di log, bukan disembunyikan. Kesimpulan operasional: **tempel signature, bukan ringkasan** — dan tempel isi file yang relevan, bukan deskripsinya.
+**Pelajaran utama dari proses vibe coding.** Empat dari lima error nyata di sesi #1–#5 berakar pada satu hal: **konteks kode tidak lengkap di prompt.** LLM tidak bisa menebak nama field (`data_dir` vs `data_root`), nama kelas (`UNet` vs `DDPMUNet`), atau parameter konstruktor yang tidak diberikan. Setelah signature verbatim ditempel ke prompt, kode langsung nyambung. Sesi #6–#8 menguatkan pola itu dari sisi sebaliknya: dengan signature `Config`, `DDPM`, `DDPMUNet`, dan blok `src/evaluate.py` ditempel verbatim, ketiga sesi berjalan **tanpa satu pun error kode**. Sesi #9 lalu memberi batas atas aturan itu: prompt #1 hanya menyebut nama helper tanpa signature `generate_with_fixed_noise` dan tanpa skema checkpoint ablation, dan hasilnya dua error berurutan (`TypeError`, lalu `KeyError: 'cfg'`). Setelah traceback utuh dan isi kunci checkpoint ditempel, revisi berikutnya langsung jalan. Dua koreksi yang tetap terjadi berada di level logika, bukan sintaks — epoch ablasi diturunkan 3→2 karena batas waktu 1 jam, dan stratifikasi kelas diperbaiki karena run pertama hanya menghasilkan 4 kelas unik padahal caption mengklaim satu sampel per kelas. Keduanya dikerjakan operator dan dicatat apa adanya di log, bukan disembunyikan. Kesimpulan operasional: **tempel signature, bukan ringkasan** — dan tempel isi file yang relevan, bukan deskripsinya.
 
-**Kerjasama tim.** Job desk dibagi dua: Faqih pada prompt arsitektur + training loop (`data.py`, `diffusion.py`, `model.py`, `train.py`, `sample.py`, `plot_loss.py`), Mia pada pipeline data, dokumentasi, dan evaluasi (`evaluate.py`, `ablation.py`, `figures.py`, seluruh `LOG-INTERAKSI.md`). Bukti integrasinya ada di riwayat commit (Lampiran A): 29 commit dengan dua nama penulis berbeda, file `src/*` tidak pernah diubah oleh penulis yang bukan pemiliknya, dan `checkpoints/ddpm_best.pt` hasil training Faqih dipakai apa adanya oleh ketiga skrip evaluasi.
+**Kerjasama tim.** Job desk dibagi dua: Faqih pada prompt arsitektur + training loop (`data.py`, `diffusion.py`, `model.py`, `train.py`, `sample.py`, `plot_loss.py`), Mia pada pipeline data, dokumentasi, dan evaluasi (`evaluate.py`, `ablation.py`, `figures.py`, `figures_ablation.py`, seluruh `LOG-INTERAKSI.md`). Bukti integrasinya ada di riwayat commit (Lampiran A): 29 commit dengan dua nama penulis berbeda, file `src/*` tidak pernah diubah oleh penulis yang bukan pemiliknya, dan `checkpoints/ddpm_best.pt` hasil training Faqih dipakai apa adanya oleh ketiga skrip evaluasi.
 
 **Keterbatasan.**
 
@@ -1122,7 +1260,7 @@ Yang tidak boleh diklaim dari figur ini: kualitas baris bawah. Sampel tampak leb
 6. Figur kualitatif hanya 6 sampel, dipilih tanpa seleksi pasca-sampling; model *unconditional*, sehingga baris hasil sampling tidak punya label kelas dan tidak berpasangan per kolom dengan baris data asli.
 7. Tidak ada evaluasi formal terhadap *mode collapse* — untuk DDPM risiko ini kecil dibanding GAN, tapi tetap tidak diukur.
 
-### 3.7 Reproduksi
+### 3.8 Reproduksi
 
 Prasyarat: Python 3.13, `torch 2.14.0+cpu`, `torchvision 0.29.0+cpu`, `matplotlib 3.10.1`; dataset Fashion-MNIST terunduh di `data/`; checkpoint `checkpoints/ddpm_best.pt` (epoch 24, loss 0,04297).
 
@@ -1149,6 +1287,9 @@ python src/ablation.py        # -> report/figures/ablation_noise_schedule.png,
 
 # 5. Figur perbandingan asli vs sampling (sesi #8, +-69 detik CPU)
 python src/figures.py         # -> report/figures/real_vs_generated.png
+
+# 6. Grid sampel linear vs cosine (sesi #9, +-208 detik CPU)
+python src/figures_ablation.py  # -> report/figures/ablation_schedule_grid.png
 ```
 
 Catatan reproduksibilitas:
@@ -1160,15 +1301,16 @@ Catatan reproduksibilitas:
 
 Di Colab GPU T4: buka `colab/jalankan_di_colab.ipynb`, jalankan sel berurutan.
 
-### 3.8 Bukti Percakapan LLM
+### 3.9 Bukti Percakapan LLM
 
-Tautan share tiap sesi tercantum di kepala entri Bab 2. Selain tautan, percakapan sesi #6–#8 diekspor ke Markdown di `deliverable/ekspor/` (`sesi-6.md`, `sesi-7.md`, `sesi-8.md`) sesuai Panduan §1 yang menerima tautan aktif **atau** ekspor dokumen. Status tautan per 26/11/2026: sesi #6 dan #7 aktif; sesi #8 mengembalikan "Link doesn't exist" sehingga ekspornya menjadi bukti utama untuk sesi tersebut. Sesi #5 tidak memiliki tautan aktif karena percakapannya sudah tidak ada di riwayat Gemini — prompt dan output-nya tetap dikutip verbatim di Bab 2.
+Tautan share tiap sesi tercantum di kepala entri Bab 2. Selain tautan, percakapan sesi #6–#8 diekspor ke Markdown di `deliverable/ekspor/` (`sesi-6.md`, `sesi-7.md`, `sesi-8.md`) sesuai Panduan §1 yang menerima tautan aktif **atau** ekspor dokumen. Status tautan per 26/11/2026: sesi #6, #7, dan #9 aktif; sesi #8 mengembalikan "Link doesn't exist" sehingga ekspornya menjadi bukti utama untuk sesi tersebut. Sesi #9 tidak diekspor ke Markdown karena tautannya (`https://share.gemini.google/gKj1cVhSwtWU`) sudah diperiksa terbuka tanpa login dan memuat seluruh percakapan. Sesi #5 tidak memiliki tautan aktif karena percakapannya sudah tidak ada di riwayat Gemini — prompt dan output-nya tetap dikutip verbatim di Bab 2.
 
 ## LAMPIRAN A — RIWAYAT COMMIT (BUKTI KOLABORASI)
 
 Hasil `git log --pretty=format:"%h | %an | %ad | %s" --date=short`:
 
 ```
+701b757 | Mia Rosiana Santoso | 2026-11-26 | Sesi #9: figur grid perbandingan schedule linear vs cosine
 fd6e69f | Mia Rosiana Santoso | 2026-11-26 | docs(log): daftar isi sesi 6-8 + nama operator Mia
 dbc8e85 | Mia Rosiana Santoso | 2026-11-26 | docs(log): entri Sesi #8 (figur real vs generated) + tautan share
 7d5be17 | Mia Rosiana Santoso | 2026-11-26 | sesi 8: figur real_vs_generated.png (2x6, 6 kelas unik)
@@ -2993,3 +3135,313 @@ def main() -> None:
 if __name__ == "__main__":
     main()
 ```
+
+### `src/figures_ablation.py`
+```python
+"""Grid perbandingan visual dua varian noise schedule (linear vs cosine).
+
+Men-sampling 6 gambar dari checkpoint linear dan 6 dari checkpoint cosine dengan
+seed yang sama, lalu menyusunnya jadi PNG 2 baris x 6 kolom untuk lampiran
+Bab IV.
+
+Kode awal dari sesi vibe coding dengan Gemini, lalu diverifikasi.
+"""
+
+from pathlib import Path
+import json
+import sys
+import time
+from typing import Any, Dict
+
+# Bootstrap sys.path agar import `from src...` berjalan saat skrip dijalankan langsung
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
+import matplotlib
+
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
+import torch
+
+from src.ablation import CosineDDPM
+from src.config import Config
+from src.diffusion import DDPM
+from src.evaluate import load_checkpoint_and_models
+from src.model import DDPMUNet
+from src.sample import generate_with_fixed_noise
+
+
+LINEAR_CKPT_DIR = PROJECT_ROOT / "checkpoints" / "ablation" / "linear"
+COSINE_CKPT_DIR = PROJECT_ROOT / "checkpoints" / "ablation" / "cosine"
+COSINE_HISTORY_PATH = PROJECT_ROOT / "logs" / "ablation" / "cosine_history.json"
+OUTPUT_PATH = PROJECT_ROOT / "report" / "figures" / "ablation_schedule_grid.png"
+
+LINEAR_MMD = 0.18872
+COSINE_MMD = 0.25580
+NUM_SAMPLES = 6
+FIXED_SEED = 1234
+
+
+def _find_checkpoint_file(ckpt_dir: Path) -> Path:
+    if ckpt_dir.is_file():
+        return ckpt_dir
+    if not ckpt_dir.exists():
+        raise FileNotFoundError(f"Direktori checkpoint tidak ditemukan: {ckpt_dir}")
+
+    preferred_names = [
+        "ddpm_best.pt",
+        "best.pt",
+        "checkpoint_best.pt",
+        "model_best.pt",
+        "last.pt",
+        "checkpoint_last.pt",
+    ]
+    for name in preferred_names:
+        candidate = ckpt_dir / name
+        if candidate.exists():
+            return candidate
+
+    pt_files = sorted(ckpt_dir.glob("*.pt"))
+    if not pt_files:
+        raise FileNotFoundError(f"Tidak ada file .pt di dalam {ckpt_dir}")
+    return pt_files[-1]
+
+
+def _normalize_to_01(images: torch.Tensor) -> torch.Tensor:
+    """Konversi tensor gambar ke rentang [0.0, 1.0] secara aman untuk visualisasi."""
+    img = images.detach().cpu().float()
+    if img.ndim == 4 and img.shape[1] > 1:
+        img = img.mean(dim=1, keepdim=True)
+
+    if img.min() < -0.05:
+        img = (img + 1.0) * 0.5
+    elif img.max() > 1.0:
+        img = img / 255.0
+
+    return torch.clamp(img, 0.0, 1.0)
+
+
+def _load_cosine_metadata(history_path: Path, ckpt: Dict[str, Any]) -> Dict[str, Any]:
+    """Ambil metadata dari cosine_history.json, lalu fallback ke Config() default."""
+    cfg_default = Config()
+    meta: Dict[str, Any] = {
+        "variant": ckpt.get("variant", "cosine"),
+        "beta_schedule": ckpt.get("beta_schedule", "cosine"),
+        "seed": FIXED_SEED,
+        "channels": cfg_default.channels,
+        "image_size": cfg_default.image_size,
+        "unet_base": cfg_default.unet_base,
+        "time_embed_dim": cfg_default.time_embed_dim,
+        "timesteps": cfg_default.timesteps,
+        "beta_start": cfg_default.beta_start,
+        "beta_end": cfg_default.beta_end,
+    }
+
+    if history_path.exists():
+        with history_path.open("r", encoding="utf-8") as f:
+            history_data = json.load(f)
+
+        # Jika file JSON berupa dict metadata langsung
+        if isinstance(history_data, dict):
+            for key in ("variant", "beta_schedule", "seed", "channels", "image_size", "unet_base", "time_embed_dim", "timesteps", "beta_start", "beta_end"):
+                if key in history_data and history_data[key] is not None:
+                    meta[key] = history_data[key]
+            # Jika metadata bersarang di dalam key 'config' atau 'meta'
+            for nested_key in ("config", "meta", "metadata"):
+                nested = history_data.get(nested_key)
+                if isinstance(nested, dict):
+                    for key in ("variant", "beta_schedule", "seed", "channels", "image_size", "unet_base", "time_embed_dim", "timesteps", "beta_start", "beta_end"):
+                        if key in nested and nested[key] is not None:
+                            meta[key] = nested[key]
+
+    return meta
+
+
+def _build_unet_from_meta(meta: Dict[str, Any], device: torch.device) -> DDPMUNet:
+    model = DDPMUNet(
+        in_channels=meta["channels"],
+        base_ch=meta["unet_base"],
+        time_emb_dim=meta["time_embed_dim"],
+    )
+    return model.to(device)
+
+
+def _build_cosine_diffusion(meta: Dict[str, Any], device: torch.device) -> CosineDDPM:
+    diffusion = CosineDDPM(
+        timesteps=meta["timesteps"],
+        s=0.008,
+        clip_denoised=True,
+    )
+    return diffusion.to(device)
+
+
+def _run_fixed_noise_sampling(
+    model: torch.nn.Module,
+    diffusion: DDPM,
+    img_size: int,
+    channels: int,
+    device: torch.device,
+    num_samples: int,
+    fixed_seed: int,
+) -> torch.Tensor:
+    model.eval()
+    torch.manual_seed(fixed_seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(fixed_seed)
+
+    with torch.no_grad():
+        samples = generate_with_fixed_noise(
+            model=model,
+            diffusion=diffusion,
+            num_samples=num_samples,
+            img_size=img_size,
+            channels=channels,
+            device=device,
+            fixed_seed=fixed_seed,
+        )
+
+    if isinstance(samples, tuple):
+        samples = samples[0]
+
+    return _normalize_to_01(samples)[:num_samples]
+
+
+def _sample_linear_checkpoint(
+    ckpt_path: Path,
+    device: torch.device,
+    num_samples: int,
+    fixed_seed: int,
+) -> torch.Tensor:
+    """Sampling model linear menggunakan helper bawaan load_checkpoint_and_models."""
+    cfg, model, diffusion, _ = load_checkpoint_and_models(str(ckpt_path), device=device)
+    model.to(device)
+    diffusion.to(device)
+
+    return _run_fixed_noise_sampling(
+        model=model,
+        diffusion=diffusion,
+        img_size=cfg.image_size,
+        channels=cfg.channels,
+        device=device,
+        num_samples=num_samples,
+        fixed_seed=fixed_seed,
+    )
+
+
+def _sample_cosine_checkpoint(
+    ckpt_path: Path,
+    history_path: Path,
+    device: torch.device,
+    num_samples: int,
+    fixed_seed: int,
+) -> torch.Tensor:
+    """Bangun ulang DDPMUNet + CosineDDPM dari checkpoint .pt + metadata cosine."""
+    ckpt = torch.load(str(ckpt_path), map_location=device)
+    meta = _load_cosine_metadata(history_path=history_path, ckpt=ckpt)
+
+    model = _build_unet_from_meta(meta=meta, device=device)
+    model.load_state_dict(ckpt["model_state_dict"])
+
+    diffusion = _build_cosine_diffusion(meta=meta, device=device)
+
+    return _run_fixed_noise_sampling(
+        model=model,
+        diffusion=diffusion,
+        img_size=meta["image_size"],
+        channels=meta["channels"],
+        device=device,
+        num_samples=num_samples,
+        fixed_seed=fixed_seed,
+    )
+
+
+def build_ablation_grid(
+    linear_samples: torch.Tensor,
+    cosine_samples: torch.Tensor,
+    save_path: Path,
+) -> None:
+    save_path.parent.mkdir(parents=True, exist_ok=True)
+
+    rows = [
+        ("Linear", LINEAR_MMD, linear_samples),
+        ("Cosine", COSINE_MMD, cosine_samples),
+    ]
+
+    fig, axes = plt.subplots(
+        nrows=2,
+        ncols=NUM_SAMPLES,
+        figsize=(NUM_SAMPLES * 1.8, 4.1),
+        gridspec_kw={"wspace": 0.06, "hspace": 0.28},
+    )
+
+    for row_idx, (schedule_name, mmd_val, imgs) in enumerate(rows):
+        row_label = f"{schedule_name} | MMD: {mmd_val:.5f}"
+        for col_idx in range(NUM_SAMPLES):
+            ax = axes[row_idx, col_idx]
+            img_2d = imgs[col_idx].squeeze().numpy()
+            ax.imshow(img_2d, cmap="gray", vmin=0.0, vmax=1.0, interpolation="nearest")
+            ax.set_xticks([])
+            ax.set_yticks([])
+
+            if col_idx == 0:
+                ax.text(
+                    0.0,
+                    1.04,
+                    row_label,
+                    transform=ax.transAxes,
+                    ha="left",
+                    va="bottom",
+                    fontsize=9,
+                    fontweight="bold",
+                )
+
+    fig.subplots_adjust(left=0.02, right=0.98, top=0.90, bottom=0.03, wspace=0.06, hspace=0.30)
+    fig.savefig(save_path, dpi=200)
+    plt.close(fig)
+
+
+def main() -> None:
+    t_start = time.perf_counter()
+    device = torch.device("cpu")
+
+    linear_ckpt = _find_checkpoint_file(LINEAR_CKPT_DIR)
+    cosine_ckpt = _find_checkpoint_file(COSINE_CKPT_DIR)
+
+    t_lin_0 = time.perf_counter()
+    linear_samples = _sample_linear_checkpoint(
+        ckpt_path=linear_ckpt,
+        device=device,
+        num_samples=NUM_SAMPLES,
+        fixed_seed=FIXED_SEED,
+    )
+    t_lin_elapsed = time.perf_counter() - t_lin_0
+
+    t_cos_0 = time.perf_counter()
+    cosine_samples = _sample_cosine_checkpoint(
+        ckpt_path=cosine_ckpt,
+        history_path=COSINE_HISTORY_PATH,
+        device=device,
+        num_samples=NUM_SAMPLES,
+        fixed_seed=FIXED_SEED,
+    )
+    t_cos_elapsed = time.perf_counter() - t_cos_0
+
+    t_plot_0 = time.perf_counter()
+    build_ablation_grid(linear_samples, cosine_samples, OUTPUT_PATH)
+    t_plot_elapsed = time.perf_counter() - t_plot_0
+
+    total_elapsed = time.perf_counter() - t_start
+    print("=== Ringkasan Waktu Eksekusi (src/figures_ablation.py) ===")
+    print(f"Checkpoint Linear : {linear_ckpt}")
+    print(f"Checkpoint Cosine : {cosine_ckpt}")
+    print(f"History Cosine    : {COSINE_HISTORY_PATH}")
+    print(f"Sampling Linear   : {t_lin_elapsed:.2f} s")
+    print(f"Sampling Cosine   : {t_cos_elapsed:.2f} s")
+    print(f"Render & Simpan   : {t_plot_elapsed:.2f} s")
+    print(f"Total Waktu       : {total_elapsed:.2f} s")
+    print(f"Output PNG        : {OUTPUT_PATH}")
+
+
+if __name__ == "__main__":
+    main()```

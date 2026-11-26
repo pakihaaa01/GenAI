@@ -1,3 +1,4 @@
+701b757 | Mia Rosiana Santoso | 2026-11-26 | Sesi #9: figur grid perbandingan schedule linear vs cosine
 fd6e69f | Mia Rosiana Santoso | 2026-11-26 | docs(log): daftar isi sesi 6-8 + nama operator Mia
 dbc8e85 | Mia Rosiana Santoso | 2026-11-26 | docs(log): entri Sesi #8 (figur real vs generated) + tautan share
 7d5be17 | Mia Rosiana Santoso | 2026-11-26 | sesi 8: figur real_vs_generated.png (2x6, 6 kelas unik)
