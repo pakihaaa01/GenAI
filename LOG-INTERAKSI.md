@@ -798,7 +798,7 @@ terbuka di Bab 3, termasuk peringatan bahwa dua epoch jauh dari konvergen.
 
 - **Target Modul:** `src/figures.py`
 - **Operator:** Mia Rosiana Santoso
-- **Tautan Sesi Chat:** https://share.gemini.google/NhHSVgoMabeC — dicek 26/11/2026: tautan mengembalikan "Link doesn't exist". Cadangan: ekspor Markdown percakapan di `deliverable/ekspor/sesi-8.md`
+- **Tautan Sesi Chat:** https://share.gemini.google/cKH8zn52Mdc6 — percakapan ini adalah **permintaan ulang** yang dibuat 27/11/2026 setelah tautan asli (`NhHSVgoMabeC`) mati ("Link doesn't exist"). Prompt yang dikirim sama isinya dengan sesi asli, tetapi jawaban Gemini berbeda pada detail API (memakai `out_channels` pada `DDPMUNet`, `model=`/`device=` pada `DDPM`, nama field config `base_ch`/`time_emb_dim`), sehingga kode di tautan **tidak dipakai**. Kode yang berjalan di repo tetap hasil percakapan asli. Transkrip asli: `deliverable/ekspor/sesi-8.md`; transkrip permintaan ulang: `deliverable/ekspor/sesi-8-ulang.md`
 - **Model LLM:** Gemini
 
 ### 1. TAHAP INISIASI (Meminta Kode Awal)

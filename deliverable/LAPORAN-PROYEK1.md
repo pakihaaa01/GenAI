@@ -887,7 +887,7 @@ terbuka di Bab 3, termasuk peringatan bahwa dua epoch jauh dari konvergen.
 
 - **Target Modul:** `src/figures.py`
 - **Operator:** Mia Rosiana Santoso
-- **Tautan Sesi Chat:** https://share.gemini.google/NhHSVgoMabeC
+- **Tautan Sesi Chat:** https://share.gemini.google/cKH8zn52Mdc6 (permintaan ulang 27/11/2026; tautan asli `NhHSVgoMabeC` sudah mati — lihat `deliverable/ekspor/sesi-8-ulang.md`)
 - **Model LLM:** Gemini
 
 #### 1. TAHAP INISIASI (Meminta Kode Awal)
@@ -1416,7 +1416,7 @@ Status seluruh tautan:
 | #5 eror 4 | `GjBM4PxUxflz` | Mengatasi Error Import Python Project | 23/11/2026 21.07 | aktif, 6.629 karakter |
 | #6 | `QMM0U3W3ZDe0` | Evaluasi Mini DDPM Fashion-MNIST CPU | 25/11/2026 16.04 | aktif, 18.939 karakter |
 | #7 | `mvsNfSQKek01` | Ablasi Noise Schedule Mini DDPM | 25/11/2026 22.04 | aktif, 22.655 karakter |
-| #8 | `NhHSVgoMabeC` | Pembuatan Figur Perbandingan DDPM | 26/11/2026 | tidak aktif |
+| #8 | `cKH8zn52Mdc6` | Pembuatan Figur Perbandingan DDPM (permintaan ulang; tautan asli `NhHSVgoMabeC` mati) | 27/11/2026 00.19 | aktif, 21.953 karakter |
 | #9 | `gKj1cVhSwtWU` | Pembuatan Skrip Visualisasi DDPM | 26/11/2026 20.45 | aktif, 41.990 karakter |
 
 Alamat lengkap setiap tautan berbentuk `https://share.gemini.google/<token>` dan

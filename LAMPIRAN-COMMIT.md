@@ -1,3 +1,5 @@
+b9618c9 | Mia Rosiana Santoso | 2026-11-27 | revert figur 4x10 — repo kembali ke figur 2x6 yang dilaporkan (alasan: deliverable/ekspor/sesi-8-ulang.md)
+bd87886 | Mia Rosiana Santoso | 2026-11-27 | sesi 8 (ulang): figur 4x10 dari percakapan pengganti — tidak dipakai, di-revert pada b9618c9
 a3bc39b | Mia Rosiana Santoso | 2026-11-26 | verifikasi: batch N=6 vs N=128 tidak bit-exact, grid reproducible
 1c0c6c0 | Mia Rosiana Santoso | 2026-11-26 | docs(readme): fase 5-7, struktur src dan cara menjalankan modul evaluasi
 ed2ca6d | Mia Rosiana Santoso | 2026-11-26 | docs(laporan): nomori 6 gambar + Daftar Gambar, verifikasi tautan, commit A
