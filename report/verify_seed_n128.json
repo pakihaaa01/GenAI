@@ -1,0 +1,28 @@
+{
+  "linear_ckpt": "C:\\Users\\rosiana\\Documents\\GenAI\\checkpoints\\ablation\\linear\\ddpm_best.pt",
+  "seed": 1234,
+  "time_n6_s": 74.41,
+  "time_n128_s": 1345.56,
+  "float_equal": false,
+  "max_abs_diff": 0.9925422668457031,
+  "mean_abs_diff": 0.23754508793354034,
+  "uint8_equal": false,
+  "n_pixels_8bit_diff": 4662,
+  "n_pixels_total": 4704,
+  "time_n6_cosine_s": 88.26,
+  "grid_shape_old": [
+    820,
+    2160,
+    3
+  ],
+  "grid_shape_new": [
+    820,
+    2160,
+    3
+  ],
+  "grid_identical": true,
+  "grid_max_channel_diff": 0,
+  "grid_pixels_diff": 0,
+  "sha256_existing_png": "e009d1b17f16052806691669fec40af2104e060d8f29e8274ebbcf7c0312ccec",
+  "sha256_reproduced_png": "e009d1b17f16052806691669fec40af2104e060d8f29e8274ebbcf7c0312ccec"
+}

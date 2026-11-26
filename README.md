@@ -24,6 +24,7 @@ dengan model bahasa besar, bukan dengan menyalin blok kode dari tutorial.
 | 5 | Evaluasi kuantitatif (`evaluate.py`): MMD dan Wasserstein-1 dengan lantai Real vs Real | selesai, MMD 0,038898 (5,4× floor) |
 | 6 | Ablasi noise schedule (`ablation.py`): linear vs cosine | selesai, 2 epoch per varian, artefak terisolasi di `checkpoints/ablation/` |
 | 7 | Figur dan kompilasi log serta laporan akhir | selesai, `figures.py`, `figures_ablation.py`, `LOG-INTERAKSI.md` terisi 9 sesi, laporan di `deliverable/` |
+| 8 | Verifikasi determinisme sampling (batch N=6 vs N=128) | selesai, grid reproducible bit-exact; batch besar tidak identik (selisih maksimum 0,99) |
 
 Seluruh modul di dalam `src/` dibangun lewat sesi percakapan dengan Gemini. Kronologi
 lengkapnya, termasuk prompt yang dikirim, error yang benar-benar muncul di konsol, dan
@@ -46,7 +47,8 @@ MiniDDPM-FashionMNIST/
 │   ├── evaluate.py       Fase 5, metrik MMD dan Wasserstein-1 + lantai Real vs Real
 │   ├── ablation.py       Fase 6, ablasi noise schedule linear vs cosine
 │   ├── figures.py        Fase 7, grid data asli vs hasil sampling
-│   └── figures_ablation.py  Fase 7, grid sampel linear vs cosine
+│   ├── figures_ablation.py  Fase 7, grid sampel linear vs cosine
+│   └── verify_seed_n128.py   verifikasi: batch N=6 vs N=128 tidak bit-exact
 ├── colab/
 │   └── jalankan_di_colab.ipynb   notebook eksekusi pada GPU T4
 ├── logs/                 metrik training per eksperimen (JSON)
@@ -167,6 +169,9 @@ python src/ablation.py
 # 8. Fase 7, figur laporan
 python src/figures.py            # -> report/figures/real_vs_generated.png
 python src/figures_ablation.py   # -> report/figures/ablation_schedule_grid.png (sekitar 208 detik)
+
+# 9. Verifikasi determinisme sampling terhadap ukuran batch (sekitar 25 menit di CPU)
+python src/verify_seed_n128.py   # -> report/verify_seed_n128.json
 ```
 
 Pada Google Colab dengan GPU T4, buka `colab/jalankan_di_colab.ipynb` lalu jalankan sel

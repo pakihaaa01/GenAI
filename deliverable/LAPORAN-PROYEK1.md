@@ -1261,7 +1261,14 @@ Caption yang dipakai:
 
 > Gambar 6. Sampel enam gambar dari dua model DDPM mini yang identik kecuali noise schedule-nya (baris atas linear, baris bawah cosine), keduanya dengan fixed seed 1234 dan T=1000. Label baris mencantumkan RBF-MMD terhadap test set. Karena kedua model dilatih unconditional dan hanya berbeda pada schedule, perbedaan visual antar baris dapat diatribusikan ke schedule, tetapi jumlah sampel kecil sehingga figur ini bersifat ilustratif.
 
-Catatan keterbatasan: baris linear pada figur ini adalah sampling ulang dengan seed 1234, bukan tensor yang dipakai saat evaluasi sesi #6/#7 (tensor itu tidak disimpan). Karena `DDPMUNet` memakai GroupNorm dan seed tetap, hasilnya seharusnya sama, tetapi kesamaan *pixel-for-pixel* dengan run evaluasi tidak diverifikasi di sesi ini.
+**Catatan determinisme (diverifikasi 26/11/2026).** Baris linear pada figur ini adalah sampling ulang dengan seed 1234, bukan tensor yang disimpan saat evaluasi. Dua hal diuji lewat `src/verify_seed_n128.py`, hasil mentahnya di `report/verify_seed_n128.json`:
+
+1. **Grid reproducible bit-exact.** Sampling N=6 untuk kedua varian diulang lalu grid dirender ulang: PNG yang dihasilkan sama persis dengan berkas yang dipakai laporan (sha256 `e009d1b1…2ccec`, 820×2160 piksel, 0 piksel berbeda).
+2. **Tetapi tidak identik dengan batch N=128.** Sampling checkpoint linear yang sama dengan seed 1234 namun `num_samples=128` memberi 6 gambar pertama yang berbeda dari baris di grid: selisih maksimum 0,9925, rata-rata 0,2375, dan 4.662 dari 4.704 piksel (99,1%) berbeda setelah kuantisasi 8-bit.
+
+Penyebabnya bukan noise awal: `torch.randn(128, 1, 28, 28)` dan `torch.randn(6, 1, 28, 28)` dengan seed sama menghasilkan 6 blok pertama yang identik persis. Penyebabnya forward pass U-Net yang tidak bit-exact antar-ukuran batch — satu forward dengan batch 128 versus 6 pada input identik berselisih hingga 1,31e-06 (rata-rata 9,08e-08), pola khas perbedaan blocking kernel CPU. Selisih sekecil itu teramplifikasi oleh 1000 langkah reverse diffusion yang autoregresif, sampai gambar akhirnya berbeda jauh.
+
+Konsekuensinya untuk penulisan: angka MMD/W1 sesi #7 (dihitung pada batch besar) dan enam gambar di figur ini tidak boleh diperlakukan sebagai objek yang sama. Figur tetap sah sebagai ilustrasi kualitatif dengan seed tetap; yang tidak boleh diklaim adalah "gambar di figur ini adalah sampel yang sama dengan yang dinilai metrik".
 
 ### 3.7 Pembahasan
 
@@ -1289,7 +1296,7 @@ Catatan keterbatasan: baris linear pada figur ini adalah sampling ulang dengan s
 
 ### 3.8 Reproduksi
 
-Prasyarat: Python 3.13, `torch 2.14.0+cpu`, `torchvision 0.29.0+cpu`, `matplotlib 3.10.1`; dataset Fashion-MNIST terunduh di `data/`; checkpoint `checkpoints/ddpm_best.pt` (epoch 24, loss 0,04297).
+Prasyarat: Python 3.13; lingkungan yang dipakai saat ini `torch 2.15.0+cpu`, `torchvision 0.29.2+cpu`, `matplotlib 3.11.2`, `Pillow 13.0.0` (run awal training memakai `torch 2.14.0+cpu`); dataset Fashion-MNIST terunduh di `data/`; checkpoint `checkpoints/ddpm_best.pt` (epoch 24, loss 0,04297).
 
 ```bash
 python -m pip install -r requirements.txt
@@ -1317,11 +1324,15 @@ python src/figures.py         # -> report/figures/real_vs_generated.png
 
 # 6. Grid sampel linear vs cosine (sesi #9, +-208 detik CPU)
 python src/figures_ablation.py  # -> report/figures/ablation_schedule_grid.png
+
+# 7. Verifikasi determinisme sampling terhadap ukuran batch (+-25 menit CPU)
+python src/verify_seed_n128.py   # -> report/verify_seed_n128.json
 ```
 
 Catatan reproduksibilitas:
 
-- Ketiga skrip evaluasi memakai seed tetap (data: `cfg.seed = 42`; sampling: `fixed_seed = 1234`) sehingga gambar dan angka bisa diulang di mesin lain dengan versi pustaka yang sama.
+- Skrip evaluasi dan figur (`evaluate.py`, `figures.py`, `figures_ablation.py`, `verify_seed_n128.py`) memakai seed tetap (data: `cfg.seed = 42`; sampling: `fixed_seed = 1234`) sehingga gambar dan angka bisa diulang di mesin lain dengan versi pustaka yang sama.
+- Determinisme itu berlaku **per ukuran batch**: batch N=6 dan N=128 dengan seed sama tidak menghasilkan gambar bit-exact (§3.6), jadi angka metrik dan gambar figur tidak boleh dipertukarkan.
 - `src/evaluate.py` dan `src/figures.py` memuat checkpoint yang sama (`checkpoints/ddpm_best.pt`); tidak ada training ulang.
 - `src/ablation.py` menulis ke direktori terpisah dan **tidak** menimpa checkpoint utama — hasil training 25 epoch tetap utuh setelah ablasi.
 - Urutan di atas penting: langkah 3–5 butuh checkpoint dari langkah 2.
@@ -3474,3 +3485,130 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()```
+
+### `src/verify_seed_n128.py`
+
+```python
+"""Verifikasi determinisme sampling terhadap ukuran batch (Sesi #9, susulan).
+
+Pertanyaan yang dijawab: apakah 6 sampel pada baris linear
+`report/figures/ablation_schedule_grid.png` sama persis dengan 6 sampel
+pertama bila sampling dijalankan dengan batch N=128?
+
+Hasil yang diperoleh: TIDAK sama. Noise awal (x_T) identik, tetapi forward
+pass U-Net dengan batch berbeda menghasilkan selisih numerik sekitar 1e-6,
+dan selisih itu teramplifikasi oleh 1000 langkah reverse diffusion sampai
+gambar akhirnya berbeda secara visual. Grid-nya sendiri reproducible
+bit-exact (sha256 PNG sama).
+
+Skrip ini menulis ringkasan ke `report/verify_seed_n128.json` dan tensor ke
+`report/verify_seed_batches.pt` (tidak di-commit).
+"""
+
+from pathlib import Path
+import hashlib
+import json
+import sys
+import time
+
+# Bootstrap sys.path agar import `from src...` berjalan saat skrip dijalankan langsung
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
+import matplotlib
+
+matplotlib.use("Agg")
+
+import numpy as np
+import torch
+from PIL import Image
+
+from src.figures_ablation import (
+    COSINE_CKPT_DIR,
+    COSINE_HISTORY_PATH,
+    FIXED_SEED,
+    LINEAR_CKPT_DIR,
+    OUTPUT_PATH,
+    _find_checkpoint_file,
+    _sample_cosine_checkpoint,
+    _sample_linear_checkpoint,
+    build_ablation_grid,
+)
+
+OUT_JSON = PROJECT_ROOT / "report" / "verify_seed_n128.json"
+TMP_PNG = PROJECT_ROOT / "report" / "figures" / "_grid_repro_tmp.png"
+BATCH_N = 128
+
+
+def main() -> None:
+    res: dict = {}
+    device = torch.device("cpu")
+
+    lin_ckpt = _find_checkpoint_file(LINEAR_CKPT_DIR)
+    cos_ckpt = _find_checkpoint_file(COSINE_CKPT_DIR)
+    print("checkpoint linear:", lin_ckpt, flush=True)
+    print("checkpoint cosine:", cos_ckpt, flush=True)
+
+    t0 = time.perf_counter()
+    s6 = _sample_linear_checkpoint(lin_ckpt, device, 6, FIXED_SEED)
+    t_n6 = time.perf_counter() - t0
+    print(f"N=6 linear selesai: {t_n6:.2f} s", flush=True)
+
+    t0 = time.perf_counter()
+    s128 = _sample_linear_checkpoint(lin_ckpt, device, BATCH_N, FIXED_SEED)
+    t_n128 = time.perf_counter() - t0
+    print(f"N={BATCH_N} linear selesai: {t_n128:.2f} s", flush=True)
+
+    first6 = s128[:6]
+    diff = (s6 - first6).abs()
+    a8 = (s6.clamp(0, 1) * 255).round().to(torch.uint8)
+    b8 = (first6.clamp(0, 1) * 255).round().to(torch.uint8)
+
+    res["linear_ckpt"] = str(lin_ckpt)
+    res["seed"] = FIXED_SEED
+    res["batch_compared"] = BATCH_N
+    res["time_n6_s"] = round(t_n6, 2)
+    res["time_n128_s"] = round(t_n128, 2)
+    res["float_equal"] = bool(torch.equal(s6, first6))
+    res["max_abs_diff"] = float(diff.max())
+    res["mean_abs_diff"] = float(diff.mean())
+    res["uint8_equal"] = bool(torch.equal(a8, b8))
+    res["n_pixels_8bit_diff"] = int((a8 != b8).sum().item())
+    res["n_pixels_total"] = int(a8.numel())
+    print(json.dumps(res, indent=2), flush=True)
+
+    t0 = time.perf_counter()
+    s6cos = _sample_cosine_checkpoint(cos_ckpt, COSINE_HISTORY_PATH, device, 6, FIXED_SEED)
+    res["time_n6_cosine_s"] = round(time.perf_counter() - t0, 2)
+    print(f"N=6 cosine selesai: {res['time_n6_cosine_s']:.2f} s", flush=True)
+
+    build_ablation_grid(s6, s6cos, TMP_PNG)
+    old = np.asarray(Image.open(OUTPUT_PATH).convert("RGB")).astype(np.int16)
+    new = np.asarray(Image.open(TMP_PNG).convert("RGB")).astype(np.int16)
+    res["grid_shape_old"] = list(old.shape)
+    res["grid_shape_new"] = list(new.shape)
+    if old.shape == new.shape:
+        gd = np.abs(old - new)
+        res["grid_identical"] = bool(gd.max() == 0)
+        res["grid_max_channel_diff"] = int(gd.max())
+        res["grid_pixels_diff"] = int((gd.sum(axis=2) > 0).sum())
+    else:
+        res["grid_identical"] = False
+        res["grid_shape_mismatch"] = True
+    res["sha256_existing_png"] = hashlib.sha256(OUTPUT_PATH.read_bytes()).hexdigest()
+    res["sha256_reproduced_png"] = hashlib.sha256(TMP_PNG.read_bytes()).hexdigest()
+    print(json.dumps(res, indent=2), flush=True)
+
+    torch.save(
+        {"s6": s6, "s128_first6": first6, "s6_cosine": s6cos},
+        PROJECT_ROOT / "report" / "verify_seed_batches.pt",
+    )
+    OUT_JSON.write_text(json.dumps(res, indent=2), encoding="utf-8")
+    TMP_PNG.unlink(missing_ok=True)
+    print("DONE", flush=True)
+
+
+if __name__ == "__main__":
+    main()
+```
